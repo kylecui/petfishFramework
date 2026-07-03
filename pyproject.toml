@@ -18,3 +18,10 @@ select = ["E", "F", "I", "B"]
 [tool.mypy]
 python_version = "3.10"
 warn_unused_configs = true
+
+[dependency-groups]
+dev = [
+    "mypy>=2.1.0",
+    "pytest>=9.1.1",
+    "ruff>=0.15.20",
+]
