@@ -140,6 +140,10 @@ class RuntimeEnvironment(Environment):
         if self.retriever is None:
             return []
 
+        # Inject EventEmitter for event-aware retrievers (CRAG, Adaptive-RAG)
+        if hasattr(self.retriever, "events"):
+            object.__setattr__(self.retriever, "events", self.events)
+
         snippets = self.retriever.retrieve(query, top_k)
         self.events.emit(
             "retrieval",

@@ -6,7 +6,26 @@ MCP-first tool contracts, and structural reliability.
 from __future__ import annotations
 
 from .core.agent import Agent
+from .core.contracts import Tool
+from .core.types import Budget, BudgetExceeded, Result, Task
+from .permissions.model import DecisionEffect
+from .reasoning import LATS, LLMPlusP, ReAct
+from .reliability.replay import ReplayMode
+from .tools.base import BaseTool
 
 __version__ = "0.1.0"
 
-__all__ = ["Agent"]
+__all__ = [
+    "Agent",
+    "BaseTool",
+    "Budget",
+    "BudgetExceeded",
+    "DecisionEffect",
+    "LATS",
+    "LLMPlusP",
+    "ReAct",
+    "ReplayMode",
+    "Result",
+    "Task",
+    "Tool",
+]
