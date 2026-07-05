@@ -6,6 +6,7 @@ Pass^k embodies contract-driven-harness freeze+perturb methodology.
 from __future__ import annotations
 
 from .cost import CostAccountant
+from .cost_report import CostReport
 from .pass_at_k import (
     DEFAULT_PERTURBATIONS,
     AgreementFn,
@@ -37,9 +38,11 @@ from .retry import (
     with_retry,
     with_retry_async,
 )
+from .timeout import OperationTimedOut, TimeoutPolicy, with_timeout
 
 __all__ = [
     "CostAccountant",
+    "CostReport",
     # pass_at_k
     "DEFAULT_PERTURBATIONS",
     "AgreementFn",
@@ -68,4 +71,8 @@ __all__ = [
     "retry_model_adapter",
     "with_retry",
     "with_retry_async",
+    # timeout
+    "OperationTimedOut",
+    "TimeoutPolicy",
+    "with_timeout",
 ]

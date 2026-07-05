@@ -5,6 +5,7 @@ MCP-first tool contracts, and structural reliability.
 """
 from __future__ import annotations
 
+from .config import FrameworkConfig
 from .core.agent import Agent
 from .core.contracts import Tool
 from .core.types import Budget, BudgetExceeded, Result, Task
@@ -21,6 +22,7 @@ __all__ = [
     "Budget",
     "BudgetExceeded",
     "DecisionEffect",
+    "FrameworkConfig",
     "LATS",
     "LLMPlusP",
     "ReAct",
