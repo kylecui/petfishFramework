@@ -39,13 +39,22 @@ def main() -> None:
     ]
 
     def numeric_match(results: list[Result]) -> bool:
-        """Extract all numbers from answers and compare."""
-        def extract_nums(s: str) -> set[str]:
-            return set(re.findall(r"\d+\.?\d*", s))
+        """Extract the LAST number (the final answer) from each response and compare.
+
+        Previous version compared ALL numbers including operands mentioned in
+        explanation text — this was incorrect. A model that says "17 * 23 = 391"
+        vs "The product of 17 and 23 is 391" both have the correct answer (391)
+        but different number sets. We should only compare the answer value.
+        """
+        def extract_answer_num(s: str) -> str | None:
+            nums = re.findall(r"\d+\.?\d*", s)
+            return nums[-1] if nums else None
         if not results:
             return False
-        first = extract_nums(results[0].answer.strip())
-        return all(extract_nums(r.answer.strip()) == first for r in results)
+        first = extract_answer_num(results[0].answer.strip())
+        if first is None:
+            return False
+        return all(extract_answer_num(r.answer.strip()) == first for r in results)
 
     model = OpenAIModel(model=model_name)
     agent = Agent(model=model, reasoning=ReAct(), tools=(Calculator(),))

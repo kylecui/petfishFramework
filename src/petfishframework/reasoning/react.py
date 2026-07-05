@@ -166,5 +166,6 @@ class ReAct(ReasoningStrategy):
             "Available tools:\n" + tool_text + "\n"
             "When you need a tool, respond with a tool call. "
             "After each tool result, continue reasoning until you reach a final answer. "
-            "When you are done, respond with plain text and no tool calls."
+            "When you are done, respond with plain text and no tool calls.\n"
+            "Keep your final answer concise — state the result directly without unnecessary explanation."
         )

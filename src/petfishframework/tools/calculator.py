@@ -44,6 +44,8 @@ class Calculator(BaseTool):
 
     def _evaluate(self, expression: str) -> float:
         """Parse and evaluate a restricted arithmetic expression using ast."""
+        # Convert ^ to ** for power (models/users often use ^ for exponentiation)
+        expression = expression.replace("^", "**")
         node = ast.parse(expression, mode="eval")
         return self._eval_node(node.body)
 
@@ -61,6 +63,8 @@ class Calculator(BaseTool):
                 if right == 0:
                     raise ZeroDivisionError("division by zero")
                 return left / right
+            if isinstance(node.op, ast.Pow):
+                return left ** right
             raise ValueError(f"Unsupported operator: {type(node.op).__name__}")
 
         if isinstance(node, ast.UnaryOp):
