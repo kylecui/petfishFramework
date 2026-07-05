@@ -31,10 +31,10 @@ class ReAct(ReasoningStrategy):
 
     def run(self, ctx) -> Result:
         """Run the ReAct loop within the provided RunContext."""
-        tool_names, messages, steps, usage, max_steps = self._setup(ctx)
+        tool_names, tool_schemas, messages, steps, usage, max_steps = self._setup(ctx)
 
         for _ in range(max_steps):
-            request = ModelRequest(messages=tuple(messages), tools=tool_names)
+            request = ModelRequest(messages=tuple(messages), tools=tool_names, tool_schemas=tool_schemas)
             response = ctx.env.query_model(request)
             usage = usage.add(response.usage)
 
@@ -59,10 +59,10 @@ class ReAct(ReasoningStrategy):
 
     async def run_async(self, ctx) -> Result:
         """Async ReAct loop; awaits async Environment methods."""
-        tool_names, messages, steps, usage, max_steps = self._setup(ctx)
+        tool_names, tool_schemas, messages, steps, usage, max_steps = self._setup(ctx)
 
         for _ in range(max_steps):
-            request = ModelRequest(messages=tuple(messages), tools=tool_names)
+            request = ModelRequest(messages=tuple(messages), tools=tool_names, tool_schemas=tool_schemas)
             response = await ctx.env.query_model_async(request)
             usage = usage.add(response.usage)
 
@@ -85,10 +85,14 @@ class ReAct(ReasoningStrategy):
 
         return self._build_final_result(messages, steps, usage)
 
-    def _setup(self, ctx) -> tuple[tuple[str, ...], list[Message], list[Step], Usage, int]:
+    def _setup(self, ctx) -> tuple[tuple[str, ...], tuple[dict, ...], list[Message], list[Step], Usage, int]:
         """Build initial ReAct state shared by sync and async paths."""
         tools = ctx.env.tools()
         tool_names = tuple(t.name for t in tools)
+        tool_schemas = tuple(
+            {"name": t.name, "description": t.description, "input_schema": t.input_schema}
+            for t in tools
+        )
 
         system_prompt = self._system_prompt(tools)
         messages = [Message(role=Role.SYSTEM, content=system_prompt)]
@@ -100,7 +104,7 @@ class ReAct(ReasoningStrategy):
         usage = Usage()
         max_steps = ctx.budget.max_steps if ctx.budget.max_steps is not None else 10
 
-        return tool_names, messages, steps, usage, max_steps
+        return tool_names, tool_schemas, messages, steps, usage, max_steps
 
     def _build_answer_result(self, response: ModelResponse, steps: list[Step], usage: Usage) -> Result:
         """Finalize when the model returns a plain-text answer."""

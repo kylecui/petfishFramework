@@ -67,7 +67,7 @@ class OpenAIModel(ModelAdapter):
     def query(self, request: ModelRequest) -> ModelResponse:
         """Send a chat completion request and convert the response."""
         messages = self._build_messages(request.messages)
-        tools = self._build_tools(request.tools)
+        tools = self._build_tools(request.tools, request.tool_schemas)
 
         params: dict[str, Any] = {
             "model": self._model,
@@ -111,10 +111,28 @@ class OpenAIModel(ModelAdapter):
             openai_messages.append(entry)
         return openai_messages
 
-    def _build_tools(self, tool_names: tuple[str, ...]) -> list[dict[str, Any]] | None:
-        """Convert tool names to OpenAI function-calling definitions."""
-        if not tool_names:
+    def _build_tools(
+        self, tool_names: tuple[str, ...], tool_schemas: tuple[dict, ...] = ()
+    ) -> list[dict[str, Any]] | None:
+        """Convert tool definitions to OpenAI function-calling format.
+
+        Uses full schemas (name + description + parameters) when available.
+        Falls back to name-only if schemas not provided.
+        """
+        if not tool_names and not tool_schemas:
             return None
+        if tool_schemas:
+            return [
+                {
+                    "type": "function",
+                    "function": {
+                        "name": s.get("name", ""),
+                        "description": s.get("description", ""),
+                        "parameters": s.get("input_schema", {"type": "object", "properties": {}}),
+                    },
+                }
+                for s in tool_schemas
+            ]
         return [
             {"type": "function", "function": {"name": name}}
             for name in tool_names

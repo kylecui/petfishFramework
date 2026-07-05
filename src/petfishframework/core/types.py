@@ -137,6 +137,7 @@ class ModelRequest:
 
     messages: tuple[Message, ...]
     tools: tuple[str, ...] = ()  # tool names available (for function-calling)
+    tool_schemas: tuple[dict[str, Any], ...] = ()  # full tool definitions: {name, description, input_schema}
     temperature: float = 0.0
     max_tokens: int | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
