@@ -29,7 +29,8 @@ pytestmark = [
 
 @pytest.fixture
 def model() -> OpenAIModel:
-    return OpenAIModel(model="gpt-4o-mini")
+    model_name = os.environ.get("BENCHMARK_MODEL", "gpt-4o-mini")
+    return OpenAIModel(model=model_name)
 
 
 @pytest.fixture

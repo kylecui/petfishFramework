@@ -33,7 +33,7 @@ def test_react_golden_path() -> None:
     tool_steps = [s for s in result.trajectory.steps if s.tool_name == "calculator"]
     assert len(tool_steps) == 1
     assert tool_steps[0].tool_args == {"expression": "2 + 3"}
-    assert tool_steps[0].observation == "5.0"
+    assert tool_steps[0].observation == "5"
 
 
 def test_budget_token_exceeded() -> None:

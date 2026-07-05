@@ -38,6 +38,9 @@ class Calculator(BaseTool):
         expression = args.get("expression", "")
         try:
             result = self._evaluate(expression)
+            # Normalize: return int for whole numbers to avoid 391.0 vs 391 ambiguity
+            if isinstance(result, float) and result.is_integer():
+                result = int(result)
             return ToolResult(value=result)
         except Exception as exc:  # noqa: BLE001
             return ToolResult(error=str(exc))
