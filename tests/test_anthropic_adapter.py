@@ -8,12 +8,14 @@ import importlib
 import sys
 from unittest.mock import MagicMock
 
+import anthropic
 import pytest
 
 from petfishframework.core.types import (
     Message,
     ModelRequest,
     Role,
+    ToolCall,
 )
 from petfishframework.models.anthropic import AnthropicModel
 
@@ -41,7 +43,20 @@ def test_anthropic_request_conversion() -> None:
         messages=(
             Message(role=Role.SYSTEM, content="You are helpful"),
             Message(role=Role.USER, content="Hello"),
+            Message(
+                role=Role.ASSISTANT,
+                content="I will use the calculator tool.",
+                tool_calls=(
+                    ToolCall(
+                        id="tc_1",
+                        name="calculator",
+                        arguments={"expression": "2 + 3"},
+                    ),
+                ),
+            ),
+            Message(role=Role.TOOL, content="5.0", tool_call_id="tc_1"),
         ),
+        tools=("calculator",),
         temperature=0.5,
     )
 
@@ -53,22 +68,49 @@ def test_anthropic_request_conversion() -> None:
     assert call_kwargs["max_tokens"] == 4096
     assert call_kwargs["temperature"] == pytest.approx(0.5)
     assert call_kwargs["system"] == "You are helpful"
-    assert call_kwargs["messages"] == [{"role": "user", "content": "Hello"}]
+    assert call_kwargs["tools"] == [
+        {
+            "name": "calculator",
+            "description": "",
+            "input_schema": {"type": "object", "properties": {}},
+        },
+    ]
+
+    messages = call_kwargs["messages"]
+    assert messages[0] == {"role": "user", "content": "Hello"}
+    assert messages[1]["role"] == "assistant"
+    assert messages[1]["content"][0] == {"type": "text", "text": "I will use the calculator tool."}
+    assert messages[1]["content"][1] == {
+        "type": "tool_use",
+        "id": "tc_1",
+        "name": "calculator",
+        "input": {"expression": "2 + 3"},
+    }
+    assert messages[2] == {
+        "role": "user",
+        "content": [
+            {
+                "type": "tool_result",
+                "tool_use_id": "tc_1",
+                "content": "5.0",
+            },
+        ],
+    }
 
 
 def test_anthropic_response_conversion() -> None:
     """The adapter converts an Anthropic Messages API response to ModelResponse."""
     mock_client = MagicMock()
     response = MagicMock()
-    response.content = [
-        MagicMock(type="text", text="The answer is 5."),
-    ]
     tool_use_block = MagicMock()
     tool_use_block.type = "tool_use"
     tool_use_block.id = "tc_2"
     tool_use_block.name = "calculator"
     tool_use_block.input = {"expression": "2 + 3"}
-    response.content.append(tool_use_block)
+    response.content = [
+        MagicMock(type="text", text="The answer is 5."),
+        tool_use_block,
+    ]
     response.stop_reason = "tool_use"
     response.usage = MagicMock(input_tokens=10, output_tokens=5)
     mock_client.messages.create.return_value = response
@@ -95,11 +137,15 @@ def test_anthropic_response_conversion() -> None:
 def test_anthropic_error_handling() -> None:
     """Anthropic API errors are caught and re-raised with a clear message."""
     mock_client = MagicMock()
-    mock_client.messages.create.side_effect = RuntimeError("anthropic API error: boom")
+    mock_client.messages.create.side_effect = anthropic.APIError(
+        "boom",
+        request=MagicMock(),
+        body=None,
+    )
     adapter = _adapter_with_mock_client(mock_client)
     request = ModelRequest(messages=(Message(role=Role.USER, content="Hi"),))
 
-    with pytest.raises(RuntimeError, match="(?i)anthropic api error"):
+    with pytest.raises(RuntimeError, match="Anthropic API error"):
         adapter.query(request)
 
 

@@ -1,8 +1,8 @@
-"""MCP client skeleton — tool discovery and invocation without real transport.
+"""MCP client — tool discovery and invocation.
 
-The client is intentionally minimal: it is configured with tool specs directly
-for Phase 2/3 testing. A real stdio transport (subprocess + JSON-RPC) will be
-added in Phase 4 via ``connect_stdio``.
+The in-process client is constructed from ``MCPToolSpec`` dictionaries. The
+``connect_stdio`` function builds a client from a real MCP server subprocess
+speaking JSON-RPC over stdio.
 """
 from __future__ import annotations
 
@@ -30,9 +30,9 @@ class MCPToolSpec:
 class MCPClient:
     """Client for MCP tool discovery and invocation.
 
-    The skeleton implementation is constructed from a dictionary of tool specs.
-    No JSON-RPC or subprocess transport is implemented yet; that work is
-    deferred to Phase 4 and represented by ``connect_stdio``.
+    Constructed from a dictionary of tool specs. Clients created by
+    ``connect_stdio`` additionally hold a reference to the live stdio transport
+    so the subprocess stays alive as long as the client is in use.
     """
 
     def __init__(self, tools: dict[str, MCPToolSpec]) -> None:
@@ -56,14 +56,41 @@ class MCPClient:
         return spec.call_fn(args)
 
 
-def connect_stdio(command: str, args: list[str]) -> MCPClient:  # noqa: ARG001
-    """Connect to an MCP server via stdio.
+def connect_stdio(
+    command: str,
+    args: list[str],
+    env: dict[str, str] | None = None,
+) -> MCPClient:
+    """Connect to an MCP server via stdio and discover its tools.
 
-    STUB — real implementation uses subprocess + JSON-RPC and is planned for
-    Phase 4. For now, build an ``MCPClient`` from direct ``MCPToolSpec``
-    dictionaries when writing tests or embedding co-located servers.
+    This function spawns ``command`` with ``args`` as a subprocess, performs
+    the MCP initialization handshake, lists the available tools, and returns an
+    ``MCPClient`` populated with ``MCPToolSpec`` instances that forward calls to
+    the subprocess via JSON-RPC.
+
+    The underlying ``StdioMCPClient`` is attached to the returned
+    ``MCPClient`` as ``_transport`` so it stays alive for the lifetime of the
+    client. Callers may use the returned client as a context manager to ensure
+    the subprocess is terminated on exit.
     """
-    raise NotImplementedError(
-        "Real stdio MCP transport is Phase 4. "
-        "Use MCPClient with direct tool specs for testing."
-    )
+    from .stdio_transport import StdioMCPClient
+
+    transport = StdioMCPClient(command, args, env=env)
+    transport.initialize()
+
+    tool_defs = transport.list_tools()
+    tools: dict[str, MCPToolSpec] = {}
+    for tool_def in tool_defs:
+        name = tool_def["name"]
+        tools[name] = MCPToolSpec(
+            name=name,
+            description=tool_def.get("description", ""),
+            input_schema=tool_def.get("inputSchema", {}),
+            call_fn=lambda arguments, tool_name=name: transport.call_tool(
+                tool_name, arguments
+            ),
+        )
+
+    client = MCPClient(tools=tools)
+    object.__setattr__(client, "_transport", transport)
+    return client

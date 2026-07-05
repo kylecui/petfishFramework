@@ -1,6 +1,7 @@
 """Agent — an immutable recipe for creating event-sourced Sessions."""
 from __future__ import annotations
 
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field, fields
 from typing import TypeVar
 
@@ -8,7 +9,7 @@ from petfishframework.core.contracts import ModelAdapter, ReasoningStrategy, Ret
 from petfishframework.core.conversation import ConversationStore
 from petfishframework.core.events import EventEmitter
 from petfishframework.core.structured import DataclassInstance, StructuredResult, parse_structured
-from petfishframework.core.types import Budget, Result, Task
+from petfishframework.core.types import Budget, Message, ModelRequest, Result, Role, Task
 from petfishframework.permissions.model import DefaultAllowPolicy, PermissionPolicy
 
 from .session import Session
@@ -103,6 +104,33 @@ class Agent:
                 parse_error=str(exc),
                 session_id=result.session_id,
             )
+
+    def run_stream(
+        self,
+        task: str | Task,
+        budget: Budget | None = None,
+    ) -> Iterator[str]:
+        """Stream the agent's response as text chunks.
+
+        Yields text chunks as they arrive from the model. The final chunk
+        completes the response. Falls back to single-chunk if model doesn't support streaming.
+        """
+        task_obj = task if isinstance(task, Task) else Task(prompt=task)
+
+        if hasattr(self.model, "query_stream"):
+            request = ModelRequest(
+                messages=(Message(role=Role.USER, content=task_obj.prompt),),
+                max_tokens=budget.max_tokens if budget is not None else None,
+            )
+            # Avoid direct attribute access on the typed ModelAdapter interface.
+            stream_attr = "query_stream"
+            stream_method: Callable[[ModelRequest], Iterator[str]] = getattr(
+                self.model, stream_attr
+            )
+            yield from stream_method(request)
+        else:
+            result = self.run(task_obj, budget=budget)
+            yield result.answer
 
     def session(
         self,

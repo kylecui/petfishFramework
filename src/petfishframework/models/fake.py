@@ -1,7 +1,9 @@
 """Fake model adapter for deterministic tests and offline development."""
 from __future__ import annotations
 
+import re
 import uuid
+from collections.abc import Iterator
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -46,6 +48,15 @@ class FakeModel(ModelAdapter):
             finish_reason=response.finish_reason,
             raw=response.raw,
         )
+
+    def query_stream(self, request: ModelRequest) -> Iterator[str]:
+        """Return the scripted response content as a stream of text chunks.
+
+        Chunks are contiguous words or whitespace slices, so joining them
+        reproduces the exact response content from :meth:`query`.
+        """
+        response = self.query(request)
+        return (match.group(0) for match in re.finditer(r"\S+|\s+", response.content))
 
     def _per_call_usage(self) -> Usage:
         """Deterministic per-call usage for testing budget enforcement."""
@@ -158,9 +169,17 @@ class AsyncFakeModel(ModelAdapter):
     _inner: FakeModel = field(default_factory=FakeModel)
     name: str = "async_fake"
 
-    async def query(self, request: ModelRequest) -> ModelResponse:
+    def query(self, request: ModelRequest) -> ModelResponse:
+        """Return the next scripted response (synchronous protocol hook)."""
+        return self._inner.query(request)
+
+    async def query_async(self, request: ModelRequest) -> ModelResponse:
         """Return the next scripted response asynchronously."""
         return self._inner.query(request)
+
+    def query_stream(self, request: ModelRequest) -> Iterator[str]:
+        """Return the scripted response content as a synchronous text stream."""
+        return self._inner.query_stream(request)
 
     @property
     def call_count(self) -> int:

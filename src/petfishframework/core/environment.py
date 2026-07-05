@@ -111,8 +111,11 @@ class RuntimeEnvironment(Environment):
         return self._finalize_query_model(request, response)
 
     async def query_model_async(self, request: ModelRequest) -> ModelResponse:
-        """Async version of query_model; awaits async model.query when detected."""
-        if asyncio.iscoroutinefunction(self.model.query):
+        """Async version of query_model; awaits async model.query/query_async."""
+        query_async = getattr(self.model, "query_async", None)
+        if query_async is not None and asyncio.iscoroutinefunction(query_async):
+            response = await query_async(request)
+        elif asyncio.iscoroutinefunction(self.model.query):
             response = await self.model.query(request)
         else:
             response = self.model.query(request)

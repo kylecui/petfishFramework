@@ -165,12 +165,11 @@ def test_mcp_client_call_tool() -> None:
     assert client.call_tool("multiply", {"a": 6, "b": 7}) == 42
 
 
-def test_mcp_connect_stdio_is_stub() -> None:
-    """``connect_stdio`` documents the Phase 4 transport without implementing it."""
+def test_mcp_connect_stdio_is_real() -> None:
+    """``connect_stdio`` is now a real stdio transport backed by a subprocess."""
     from petfishframework.mcp import connect_stdio
 
-    with pytest.raises(NotImplementedError):
-        connect_stdio("npx", ["-y", "@modelcontextprotocol/server-everything"])
+    assert callable(connect_stdio)
 
 
 def test_mcp_serve_as_mcp_is_stub() -> None:
