@@ -52,9 +52,17 @@ class StdioMCPClient:
         return merged
 
     def _spawn(self) -> subprocess.Popen[str]:
-        """Start the MCP server subprocess with text-mode pipes."""
+        """Start the MCP server subprocess with text-mode pipes.
+
+        On Windows, commands like 'npx' are .cmd files that Popen can't find
+        without shell=True. We resolve the full path via shutil.which instead.
+        """
+        import shutil
+
+        resolved = shutil.which(self._command)
+        cmd = resolved or self._command
         return subprocess.Popen(
-            [self._command] + self._args,
+            [cmd] + self._args,
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
@@ -144,6 +152,7 @@ class StdioMCPClient:
             "initialize",
             {
                 "protocolVersion": "2024-11-05",
+                "capabilities": {},
                 "clientInfo": {"name": "petfishframework", "version": "0.1.0"},
             },
         )
