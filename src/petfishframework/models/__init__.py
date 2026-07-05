@@ -6,7 +6,7 @@ framework core remains optional-dependency free.
 """
 from __future__ import annotations
 
-from .fake import FakeModel
+from .fake import AsyncFakeModel, FakeModel
 from .openai import OpenAIModel
 
-__all__ = ["FakeModel", "OpenAIModel"]
+__all__ = ["AsyncFakeModel", "FakeModel", "OpenAIModel"]

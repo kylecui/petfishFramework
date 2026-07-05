@@ -14,6 +14,7 @@ from typing import Any, Protocol, runtime_checkable
 
 from .types import (
     Budget,
+    Message,
     ModelRequest,
     ModelResponse,
     Result,
@@ -186,3 +187,4 @@ class RunContext:
     memory: MemoryView
     events: Any  # EventEmitter (typed in events.py; Any here to avoid cycle)
     compiled: Any = None  # CompiledContext (v0.2 contract compilation layer)
+    conversation_history: tuple[Message, ...] = ()  # cross-session memory

@@ -29,6 +29,14 @@ from .replay import (
     ResumableEnvironment,
     replay_environment_from_recording,
 )
+from .retry import (
+    RetryableError,
+    RetryModelAdapter,
+    RetryPolicy,
+    retry_model_adapter,
+    with_retry,
+    with_retry_async,
+)
 
 __all__ = [
     "CostAccountant",
@@ -53,4 +61,11 @@ __all__ = [
     "ReplayMode",
     "ResumableEnvironment",
     "replay_environment_from_recording",
+    # retry
+    "RetryModelAdapter",
+    "RetryPolicy",
+    "RetryableError",
+    "retry_model_adapter",
+    "with_retry",
+    "with_retry_async",
 ]

@@ -15,9 +15,10 @@ from .contracts import (
     RunContext,
     Tool,
 )
+from .conversation import ConversationStore
 from .environment import RuntimeEnvironment
 from .events import EventEmitter
-from .types import Budget, Result, Task, Usage
+from .types import Budget, Message, Result, Role, Task, Usage
 
 
 @dataclass
@@ -38,9 +39,29 @@ class Session:
     events: EventEmitter
     session_id: str = field(default_factory=lambda: uuid.uuid4().hex[:16])
     _env: RuntimeEnvironment | None = field(default=None, repr=False)
+    conversation_id: str | None = None
+    conversation_store: ConversationStore | None = None
 
     def run(self) -> Result:
         """Execute the session and return a Result."""
+        ctx = self._prepare_run()
+        result = self.reasoning.run(ctx)
+        return self._finalize_run(result)
+
+    async def run_async(self) -> Result:
+        """Execute the session asynchronously and return a Result."""
+        ctx = self._prepare_run()
+        run_async = getattr(self.reasoning, "run_async", None)
+        if run_async is None:
+            raise RuntimeError(
+                f"Strategy {self.reasoning.name} does not support async. "
+                "Implement run_async()."
+            )
+        result = await run_async(ctx)
+        return self._finalize_run(result)
+
+    def _prepare_run(self) -> RunContext:
+        """Build the RuntimeEnvironment and RunContext; shared by sync/async paths."""
         compiled = CompiledContext(
             task_spec=TaskSpec(task_type="generic"),
             memory_slice=MemorySlice(),
@@ -59,6 +80,7 @@ class Session:
             session_id=self.session_id,
         )
 
+        conversation_history = self._load_conversation_history()
         ctx = RunContext(
             task=self.task,
             env=self._env,
@@ -66,6 +88,7 @@ class Session:
             memory=MemoryView(),
             events=self.events,
             compiled=compiled,
+            conversation_history=conversation_history,
         )
 
         self.events.emit(
@@ -76,10 +99,25 @@ class Session:
                 "reasoning": self.reasoning.name,
             },
         )
+        return ctx
 
-        result = self.reasoning.run(ctx)
+    def _load_conversation_history(self) -> tuple[Message, ...]:
+        """Load persisted conversation history when a store and id are configured."""
+        if self.conversation_store is None or self.conversation_id is None:
+            return ()
 
-        # Attach session-level metadata and accumulated usage.
+        history = tuple(self.conversation_store.load(self.conversation_id))
+        self.events.emit(
+            "conversation.load",
+            {
+                "conversation_id": self.conversation_id,
+                "message_count": len(history),
+            },
+        )
+        return history
+
+    def _finalize_run(self, result: Result) -> Result:
+        """Attach usage, persist conversation, and emit session.end."""
         usage = self._env.usage() if self._env is not None else Usage()
         result = Result(
             answer=result.answer,
@@ -87,6 +125,8 @@ class Session:
             usage=usage,
             session_id=self.session_id,
         )
+
+        self._save_conversation_history(result)
 
         self.events.emit(
             "session.end",
@@ -103,6 +143,26 @@ class Session:
             },
         )
         return result
+
+    def _save_conversation_history(self, result: Result) -> None:
+        """Persist previous history plus the current user/assistant turn."""
+        if self.conversation_store is None or self.conversation_id is None:
+            return
+
+        previous = list(self.conversation_store.load(self.conversation_id))
+        current_turn = [
+            Message(role=Role.USER, content=self.task.prompt),
+            Message(role=Role.ASSISTANT, content=result.answer),
+        ]
+        new_messages = previous + current_turn
+        self.conversation_store.save(self.conversation_id, new_messages)
+        self.events.emit(
+            "conversation.save",
+            {
+                "conversation_id": self.conversation_id,
+                "message_count": len(new_messages),
+            },
+        )
 
     def replay(self) -> tuple:
         """Return the recorded event log (AUDIT replay mode).

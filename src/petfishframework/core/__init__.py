@@ -24,7 +24,9 @@ from .contracts import (
     RunContext,
     Tool,
 )
+from .conversation import ConversationStore, InMemoryConversationStore
 from .events import Event, EventEmitter
+from .structured import StructuredResult, parse_json, parse_structured
 from .types import (
     Budget,
     BudgetExceeded,
@@ -70,9 +72,16 @@ __all__ = [
     "RiskLevel",
     "RunContext",
     "Tool",
+    # conversation
+    "ConversationStore",
+    "InMemoryConversationStore",
     # events
     "Event",
     "EventEmitter",
+    # structured
+    "StructuredResult",
+    "parse_json",
+    "parse_structured",
     # compiled
     "CompiledContext",
     "EvidenceBundle",

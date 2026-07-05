@@ -21,9 +21,11 @@ class FakeModel(ModelAdapter):
     name: str = "fake"
     _index: int = field(default=0, repr=False)
     _calls: int = field(default=0, repr=False)
+    _requests: list[ModelRequest] = field(default_factory=list, repr=False)
 
     def query(self, request: ModelRequest) -> ModelResponse:
         """Return the next scripted response, or the last one available."""
+        self._requests.append(request)
         if not self.responses:
             return ModelResponse(content="", usage=self._per_call_usage())
 
@@ -53,6 +55,11 @@ class FakeModel(ModelAdapter):
     def call_count(self) -> int:
         """Number of times query() has been invoked."""
         return self._calls
+
+    @property
+    def requests(self) -> tuple[ModelRequest, ...]:
+        """All model requests received by query(), in order."""
+        return tuple(self._requests)
 
     @classmethod
     def script_tool_then_answer(
@@ -136,3 +143,41 @@ class FakeModel(ModelAdapter):
                 ModelResponse(content=backtranslate_content),
             )
         )
+
+
+@dataclass
+class AsyncFakeModel(ModelAdapter):
+    """Async scripted model adapter for deterministic async tests.
+
+    Wraps a sync FakeModel so all scripting utilities are reused; only the
+    query() coroutine wrapper is added. This makes AsyncFakeModel compatible
+    with RuntimeEnvironment.query_model_async() via
+    ``asyncio.iscoroutinefunction()`` detection.
+    """
+
+    _inner: FakeModel = field(default_factory=FakeModel)
+    name: str = "async_fake"
+
+    async def query(self, request: ModelRequest) -> ModelResponse:
+        """Return the next scripted response asynchronously."""
+        return self._inner.query(request)
+
+    @property
+    def call_count(self) -> int:
+        """Number of times query() has been invoked on the underlying model."""
+        return self._inner.call_count
+
+    @property
+    def requests(self) -> tuple[ModelRequest, ...]:
+        """All model requests received by the underlying query()."""
+        return tuple(self._inner.requests)
+
+    @classmethod
+    def script_tool_then_answer(
+        cls,
+        tool_name: str,
+        tool_args: dict[str, Any],
+        final_answer: str,
+    ) -> "AsyncFakeModel":
+        """Create a two-response async script: one tool call, then a final answer."""
+        return cls(_inner=FakeModel.script_tool_then_answer(tool_name, tool_args, final_answer))
