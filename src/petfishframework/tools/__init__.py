@@ -7,5 +7,6 @@ from __future__ import annotations
 from .agent_tool import AgentAsTool
 from .base import BaseTool, tool
 from .calculator import Calculator
+from .word_sorter import WordSorter
 
-__all__ = ["AgentAsTool", "BaseTool", "Calculator", "tool"]
+__all__ = ["AgentAsTool", "BaseTool", "Calculator", "WordSorter", "tool"]
