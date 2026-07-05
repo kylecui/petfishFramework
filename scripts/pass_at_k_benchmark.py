@@ -29,7 +29,6 @@ TASKS = [
     Task(prompt="What is 2^10? Use the calculator."),
 ]
 K = 8
-MODEL = os.environ.get("BENCHMARK_MODEL", "gpt-4o-mini")
 
 
 def run_benchmark() -> None:
@@ -37,14 +36,16 @@ def run_benchmark() -> None:
 
     load_dotenv()  # Load .env if present
 
+    model_name = os.environ.get("BENCHMARK_MODEL", "gpt-4o-mini")
+
     if not os.environ.get("OPENAI_API_KEY"):
         print("ERROR: OPENAI_API_KEY not set.")
         sys.exit(1)
 
-    model = OpenAIModel(model=MODEL)
+    model = OpenAIModel(model=model_name)
     agent = Agent(model=model, reasoning=ReAct(), tools=(Calculator(),))
 
-    print(f"Pass^{K} Benchmark — {MODEL}")
+    print(f"Pass^{K} Benchmark — {model_name}")
     print(f"Tasks: {len(TASKS)} | k={K} | Agreement: exact_match")
     print("=" * 60)
 
@@ -66,7 +67,7 @@ def run_benchmark() -> None:
 
                 client = openai.OpenAI(base_url=os.environ.get("OPENAI_BASE_URL"))
                 resp = client.chat.completions.create(
-                    model=MODEL,
+                    model=model_name,
                     messages=[{"role": "user", "content": task.prompt}],
                     temperature=0.7,
                 )
