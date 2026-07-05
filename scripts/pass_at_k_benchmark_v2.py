@@ -41,14 +41,11 @@ def main() -> None:
     def numeric_match(results: list[Result]) -> bool:
         """Extract the LAST number (the final answer) from each response and compare.
 
-        Previous version compared ALL numbers including operands mentioned in
-        explanation text — this was incorrect. A model that says "17 * 23 = 391"
-        vs "The product of 17 and 23 is 391" both have the correct answer (391)
-        but different number sets. We should only compare the answer value.
+        Uses float comparison to handle trailing periods: '1024.' == '1024' == '1024.0'.
         """
-        def extract_answer_num(s: str) -> str | None:
+        def extract_answer_num(s: str) -> float | None:
             nums = re.findall(r"\d+\.?\d*", s)
-            return nums[-1] if nums else None
+            return float(nums[-1]) if nums else None
         if not results:
             return False
         first = extract_answer_num(results[0].answer.strip())
