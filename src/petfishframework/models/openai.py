@@ -127,14 +127,23 @@ class OpenAIModel(ModelAdapter):
 
         tool_calls: tuple[ToolCall, ...] = ()
         if message.tool_calls:
-            tool_calls = tuple(
-                ToolCall(
-                    id=tool_call.id,
-                    name=tool_call.function.name,
-                    arguments=json.loads(tool_call.function.arguments),
+            parsed_calls: list[ToolCall] = []
+            for tool_call in message.tool_calls:
+                raw_args = tool_call.function.arguments
+                try:
+                    args = json.loads(raw_args) if raw_args else {}
+                except (json.JSONDecodeError, TypeError):
+                    # Some providers (e.g. SiliconFlow/Qwen) return non-standard JSON.
+                    # Fall back to wrapping the raw string in a dict.
+                    args = {"_raw": raw_args} if raw_args else {}
+                parsed_calls.append(
+                    ToolCall(
+                        id=tool_call.id,
+                        name=tool_call.function.name,
+                        arguments=args,
+                    )
                 )
-                for tool_call in message.tool_calls
-            )
+            tool_calls = tuple(parsed_calls)
 
         usage = Usage(
             input_tokens=response.usage.prompt_tokens,
