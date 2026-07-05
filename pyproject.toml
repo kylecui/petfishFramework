@@ -6,7 +6,21 @@ build-backend = "hatchling.build"
 name = "petfishframework"
 version = "0.1.0"
 description = "petfishFramework — a general AI Agent framework"
+readme = "README.md"
+license = "MIT"
 requires-python = ">=3.10"
+authors = [
+    { name = "Kyle Cui", email = "18226150+kylecui@users.noreply.github.com" },
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Software Development :: Libraries :: Application Frameworks",
+]
 dependencies = []
 
 [tool.hatch.build.targets.wheel]
@@ -20,6 +34,9 @@ mcp = ["mcp>=1.0"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
+markers = [
+    "integration: requires real API keys (OPENAI_API_KEY, ANTHROPIC_API_KEY). Skipped by default.",
+]
 
 [tool.ruff]
 line-length = 120
