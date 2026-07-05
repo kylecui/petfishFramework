@@ -57,10 +57,12 @@ class OpenAIModel(ModelAdapter):
                 "OpenAIModel requires an api_key or the OPENAI_API_KEY environment variable."
             )
 
+        resolved_base_url = base_url if base_url is not None else os.environ.get("OPENAI_BASE_URL")
+
         self.name = model
         self._model = model
         self._openai = openai
-        self._client = OpenAI(api_key=resolved_key, base_url=base_url, **kwargs)
+        self._client = OpenAI(api_key=resolved_key, base_url=resolved_base_url, **kwargs)
 
     def query(self, request: ModelRequest) -> ModelResponse:
         """Send a chat completion request and convert the response."""
