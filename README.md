@@ -4,7 +4,7 @@
 
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Tests: 166](https://img.shields.io/badge/tests-166-brightgreen.svg)](tests/)
+[![Tests: 187](https://img.shields.io/badge/tests-187-brightgreen.svg)](tests/)
 
 ## Why petfishFramework?
 
