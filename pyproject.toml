@@ -26,6 +26,15 @@ dependencies = []
 [tool.hatch.build.targets.wheel]
 packages = ["src/petfishframework"]
 
+[tool.hatch.build.targets.sdist]
+exclude = [
+    ".opencode/",
+    ".petfish/",
+    "outputs/",
+    "examples/",
+    "scripts/",
+]
+
 [project.optional-dependencies]
 openai = ["openai>=1.0"]
 anthropic = ["anthropic>=0.40"]
