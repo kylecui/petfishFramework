@@ -109,3 +109,94 @@ Raw: same prompt, free text
 | **Scoring reliability** | PF = zero regex | structured output / deterministic tools |
 
 > **Framework value**: not smarter computation (both compute correctly), but **stable, parseable, deterministic output** — downstream systems can rely on `result.data.answer` without regex.
+
+---
+
+## Tier 3: Framework-Only Capabilities (Raw API Cannot Replicate)
+
+These capabilities are structurally impossible with raw API calls — they require the framework's Environment chokepoint, Session lifecycle, or tool infrastructure. Validated via integration tests and Phase 4 MCP verification.
+
+### [6] Multi-Tool Orchestration
+
+PF: `Agent(tools=(Calculator(), WordSorter()))` — multiple tools in one session, model chooses which to call.
+Raw: no mechanism — each API call is independent, no tool registration or dispatch.
+
+| Capability | PF | Raw API |
+|---|---|---|
+| Register multiple tools | ✅ `tools=(Calculator(), WordSorter())` | ❌ no tool system |
+| Model selects correct tool | ✅ via `tool_schemas` (Bug #5 fix) | ❌ |
+| All calls audited via events | ✅ EventEmitter | ❌ |
+
+Validated: `test_agent_with_multiple_tools` PASSED.
+
+### [7] Conversation Memory (Cross-Session)
+
+PF: `ConversationStore` persists messages across runs — agent remembers previous turns.
+Raw: stateless — each API call forgets everything.
+
+| Capability | PF | Raw API |
+|---|---|---|
+| Cross-session memory | ✅ `conversation_id` + `ConversationStore` | ❌ stateless |
+| Two-turn recall | ✅ "Remember: my number is 42" → "What's my number?" → "42" | ❌ |
+
+Validated: `test_real_conversation_memory` PASSED with SiliconFlow API (agent recalled "42" across turns).
+
+### [8] MCP Tool Discovery
+
+PF: `connect_stdio("npx", ["@modelcontextprotocol/server-filesystem", dir])` — connects to real MCP server, discovers 14 tools.
+Raw: no mechanism to discover or call external tools.
+
+| Capability | PF | Raw API |
+|---|---|---|
+| Connect to MCP server | ✅ real stdio transport | ❌ |
+| Discover tools dynamically | ✅ 14 tools from filesystem server | ❌ |
+| Call MCP tools through chokepoint | ✅ audited, budget-metered | ❌ |
+
+Validated: Phase 4 MCP verification — 14 tools discovered, `list_directory` called successfully. Bug #1 (Windows path) and Bug #2 (capabilities) found and fixed.
+
+### [9] Deterministic Replay
+
+PF: `RecordingEnvironment` → `ReplayEnvironment` — re-execute with recorded outputs, verify trajectory matches.
+Raw: no replay mechanism — cannot reproduce or audit past executions.
+
+| Capability | PF | Raw API |
+|---|---|---|
+| AUDIT replay (deterministic) | ✅ identical trajectory every time | ❌ |
+| RESUME from checkpoint | ✅ recorded prefix + fresh suffix | ❌ |
+| RERUN fresh (Pass^k) | ✅ k-independent runs | ❌ |
+| Divergence detection | ✅ RuntimeError on mismatch | ❌ |
+
+Validated: `test_replay_audit_deterministic` + `test_replay_resume_from_checkpoint` PASSED.
+
+### [10] Reliability Infrastructure
+
+PF: Pass^k + Budget enforcement + Retry + Timeout + SARC permissions — all structural.
+Raw: none of these exist.
+
+| Capability | PF | Raw API |
+|---|---|---|
+| Pass^k consistency metric | ✅ freeze+perturb | ❌ |
+| Hard budget enforcement | ✅ BudgetExceeded | ❌ |
+| Transient failure retry | ✅ RetryModelAdapter | ❌ |
+| Operation timeout | ✅ TimeoutPolicy | ❌ |
+| Permission gating (SARC) | ✅ two-gate model | ❌ |
+| Event-sourced audit log | ✅ EventEmitter | ❌ |
+
+---
+
+## Complete Benchmark Summary (All Tiers)
+
+| Tier | Benchmark | PF | Raw API | PF Scoring | Regex? |
+|---|---|---|---|---|---|
+| **1** | Arithmetic | **8/8 exact** | 0/8 | `answer == expected` | No |
+| **1** | MMLU | **75%** | 68% | `data.answer == letter` | No |
+| **1** | word_sorting | **100%** | 0% | tool output == target | No |
+| **1** | Pass^k | **8/8** | 0/8 | exact_match | No |
+| **2** | BBH reasoning | **80%** | 76% | substring | Yes* |
+| **3** | Multi-tool | ✅ | ❌ | structural | — |
+| **3** | Conversation memory | ✅ | ❌ | structural | — |
+| **3** | MCP discovery | ✅ 14 tools | ❌ | structural | — |
+| **3** | Deterministic replay | ✅ | ❌ | structural | — |
+| **3** | Reliability infra | ✅ 6 features | ❌ | structural | — |
+
+*BBH is the ONLY benchmark with non-structured scoring.
