@@ -49,3 +49,4 @@ install_extracted.py
 
 # Build artifacts
 dist/
+.env.pypi
