@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field, fields
-from typing import TypeVar
+from typing import Any, TypeVar
 
 from petfishframework.core.contracts import ModelAdapter, ReasoningStrategy, Retriever, Tool
 from petfishframework.core.conversation import ConversationStore
@@ -33,6 +33,7 @@ class Agent:
     permission_policy: PermissionPolicy = field(
         default_factory=lambda: _default_policy()
     )
+    tool_registry: Any = None  # ToolRegistry | None — lazy typed to avoid import cycle
 
     def run(
         self,
@@ -139,14 +140,33 @@ class Agent:
         conversation_id: str | None = None,
         conversation_store: ConversationStore | None = None,
     ) -> Session:
-        """Create a new Session from this agent's configuration."""
+        """Create a new Session from this agent's configuration.
+
+        If tool_registry is set, IntentRouter auto-selects tools based on
+        task intent (Council #1: automatic tool selection). Explicit tools
+        are always included; auto-selected tools supplement them.
+        """
         if isinstance(task, str):
             task = Task(prompt=task)
+
+        # Resolve tools: explicit + auto-selected from registry
+        resolved_tools = self.tools
+        if self.tool_registry is not None:
+            from petfishframework.tools.registry import IntentRouter
+
+            router = IntentRouter()
+            auto_tools = router.route(task, self.tool_registry)
+            # Merge: explicit tools + auto-selected (deduplicate by name)
+            explicit_names = {t.name for t in resolved_tools}
+            for t in auto_tools:
+                if t.name not in explicit_names:
+                    resolved_tools = resolved_tools + (t,)
+
         events = EventEmitter()
         return Session(
             model=self.model,
             reasoning=self.reasoning,
-            tools=self.tools,
+            tools=resolved_tools,
             retriever=self.retriever,
             policy=self.permission_policy,
             task=task,
