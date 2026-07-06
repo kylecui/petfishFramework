@@ -3,8 +3,8 @@
 > The AI agent framework where reliability is architecture, not an afterthought.
 
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Tests: 187](https://img.shields.io/badge/tests-187-brightgreen.svg)](tests/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://github.com/kylecui/petfishFramework/blob/master/LICENSE)
+[![Tests: 187](https://img.shields.io/badge/tests-187-brightgreen.svg)](https://github.com/kylecui/petfishFramework/tree/master/tests/)
 
 ## Why petfishFramework?
 
@@ -98,20 +98,20 @@ Agent (recipe) → Session (event-sourced process) → Environment (chokepoint)
 - **Session** = event-sourced execution (checkpointable, replayable, auditable)
 - **Environment** = single capability chokepoint (all calls audited, budget-metered, permission-gated)
 
-See [docs/architecture.md](docs/architecture.md) for full design.
+See [docs/architecture.md](https://github.com/kylecui/petfishFramework/blob/master/docs/architecture.md) for full design.
 
 ## Benchmark
 
-> ⏳ Pending validation — see [docs/validation-roadmap.md](docs/validation-roadmap.md)
+> ⏳ Pending validation — see [docs/validation-roadmap.md](https://github.com/kylecui/petfishFramework/blob/master/docs/validation-roadmap.md)
 
 Pass^k comparison (petfishFramework vs raw API) will be documented here after real-model benchmark runs.
 
 ## Documentation
 
-- [Architecture](docs/architecture.md) — 5 core decisions, module structure
-- [API Reference](docs/api.md) — 989-line definitive reference (96 tests validate every API)
-- [Validation Roadmap](docs/validation-roadmap.md) — from paper-validated to real-validated
-- [Examples](examples/) — 3 runnable scripts (quickstart, tools+retrieval, multi-agent)
+- [Architecture](https://github.com/kylecui/petfishFramework/blob/master/docs/architecture.md) — 5 core decisions, module structure
+- [API Reference](https://github.com/kylecui/petfishFramework/blob/master/docs/api.md) — 989-line definitive reference (187 tests validate every API)
+- [Validation Roadmap](https://github.com/kylecui/petfishFramework/blob/master/docs/validation-roadmap.md) — from paper-validated to real-validated
+- [Examples](https://github.com/kylecui/petfishFramework/tree/master/examples/) — 3 runnable scripts (quickstart, tools+retrieval, multi-agent)
 
 ## Development
 
@@ -125,4 +125,4 @@ uv run ruff check src/ tests/  # lint clean
 
 ## License
 
-[MIT](LICENSE) — © 2026 Kyle Cui
+[MIT](https://github.com/kylecui/petfishFramework/blob/master/LICENSE) — © 2026 Kyle Cui
