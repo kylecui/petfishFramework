@@ -39,3 +39,10 @@ __pycache__/
 
 # PetFish local state
 .petfish/
+
+# Temp/backup files
+*.bak
+extract.py
+install_extracted.py
+.opencode/mcp/
+.opencode/plugin/
