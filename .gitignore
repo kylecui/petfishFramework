@@ -46,3 +46,6 @@ extract.py
 install_extracted.py
 .opencode/mcp/
 .opencode/plugin/
+
+# Build artifacts
+dist/
