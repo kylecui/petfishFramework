@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "petfishframework"
-version = "0.2.3"
+version = "0.2.4"
 description = "A lightweight runtime framework for reliable, auditable, budget-aware, and permission-aware AI agents."
 readme = "README.md"
 license = "MIT"
