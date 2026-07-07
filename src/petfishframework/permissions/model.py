@@ -102,9 +102,36 @@ class DefaultAllowPolicy:
     The gate STRUCTURE exists (Environment calls this before every tool
     invocation) but defaults to ALLOW. This ensures the permission chokepoint
     is wired from day one — flipping to deny-by-default is a config change,
-    not an architecture change.
+    not architecture change.
     """
 
     def evaluate(self, subject: Subject, action: Action, resource: Resource, context: AccessContext) -> Decision:
         # Skeleton: allow all. TODO: wire SARC policy engine + two-gate model.
         return Decision(effect=DecisionEffect.ALLOW, reason="default_allow_policy")
+
+
+@dataclass
+class DenyByDefaultPolicy:
+    """Security-first policy: deny everything unless explicitly whitelisted.
+
+    Use this in production or when testing security boundaries.
+    Register allowed tool names in `allowed_tools`.
+
+    Example:
+        policy = DenyByDefaultPolicy(allowed_tools={"calculator", "word_sorter"})
+        agent = Agent(..., permission_policy=policy)
+        # calculator/word_sorter → ALLOW, everything else → DENY
+    """
+
+    allowed_tools: set[str] = field(default_factory=set)
+
+    def evaluate(self, subject: Subject, action: Action, resource: Resource, context: AccessContext) -> Decision:
+        if action.tool_name and action.tool_name in self.allowed_tools:
+            return Decision(
+                effect=DecisionEffect.ALLOW,
+                reason=f"tool '{action.tool_name}' is whitelisted",
+            )
+        return Decision(
+            effect=DecisionEffect.DENY,
+            reason=f"deny-by-default: tool '{action.tool_name}' not in whitelist",
+        )

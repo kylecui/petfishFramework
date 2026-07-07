@@ -8,7 +8,6 @@ Run: uv run python examples/01_quickstart.py
 from __future__ import annotations
 
 from petfishframework import Agent, ReAct
-from petfishframework.core.types import ModelResponse
 from petfishframework.models.fake import FakeModel
 from petfishframework.tools.calculator import Calculator
 

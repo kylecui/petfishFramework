@@ -112,6 +112,42 @@ for event in session.replay():
 # Session has: events, replay(), checkpoint()
 ```
 
+## MCP Client (External Tool Servers)
+
+```bash
+pip install "petfishframework[mcp]"
+```
+
+```python
+from petfishframework.mcp import connect_stdio
+
+# Connect to a real MCP server
+client = connect_stdio("npx", ["-y", "@modelcontextprotocol/server-filesystem", "/tmp"])
+tools = client.discover_tools()  # 14 tools: read_file, write_file, list_directory...
+
+agent = Agent(model=model, reasoning=ReAct(), tools=tuple(tools))
+result = agent.run("List all files in /tmp")
+```
+
+## Reliability Evaluation (Pass^k)
+
+```python
+from petfishframework.reliability import pass_at_k_with_perturbations, exact_match
+from petfishframework.core.types import Task
+
+# Run same task 8 times — measure consistency
+result = pass_at_k_with_perturbations(
+    session_factory=lambda task: agent.session(task),
+    task=Task(prompt="What is 17 * 23?"),
+    k=8,
+)
+print(result.summary())
+# Pass@8 — PASS (100%)
+#   canonical:        8/8
+#   order_shuffled:   8/8
+#   paraphrase:       8/8
+```
+
 ## Core Concepts
 
 | Concept | Role |

@@ -9,7 +9,6 @@ Run: uv run python examples/03_multi_agent.py
 from __future__ import annotations
 
 from petfishframework import Agent, ReAct
-from petfishframework.core.types import ModelResponse
 from petfishframework.models.fake import FakeModel
 from petfishframework.tools.agent_tool import AgentAsTool
 from petfishframework.tools.calculator import Calculator
