@@ -126,6 +126,9 @@ class Session:
             session_id=self.session_id,
         )
 
+        # Save result for audit_report_from_session() (feedback v0.1.8 Section 5.1)
+        self._result = result
+
         self._save_conversation_history(result)
 
         self.events.emit(

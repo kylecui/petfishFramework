@@ -124,12 +124,17 @@ class AuditReport:
         return json.dumps(data, indent=2, default=str)
 
 
-def audit_report_from_session(session: Any) -> AuditReport:
-    """Create an AuditReport from a Session."""
+def audit_report_from_session(session: Any, result: Result | None = None) -> AuditReport:
+    """Create an AuditReport from a Session.
+
+    Args:
+        session: The Session to generate a report from.
+        result: Optional Result to include. If None, tries session._result.
+    """
     events = session.events.events
-    result = getattr(session, "_result", None)
+    final_result = result if result is not None else getattr(session, "_result", None)
     return AuditReport(
         session_id=session.session_id,
         events=events,
-        result=result,
+        result=final_result,
     )

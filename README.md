@@ -4,7 +4,7 @@
 
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://github.com/kylecui/petfishFramework/blob/master/LICENSE)
-[![Tests: 218](https://img.shields.io/badge/tests-213-brightgreen.svg)](https://github.com/kylecui/petfishFramework/tree/master/tests/)
+[![Tests: 223](https://img.shields.io/badge/tests-213-brightgreen.svg)](https://github.com/kylecui/petfishFramework/tree/master/tests/)
 
 **Status: Alpha** — API may change. Core runtime works; see [Roadmap](#roadmap).
 
@@ -157,7 +157,7 @@ print(result.summary())
 | **Environment** | Single chokepoint (all calls audited, budget-metered, permission-gated) |
 | **Budget** | Hard execution limits (tokens, cost, steps, tool calls) |
 | **Permission** | SARC access control with 6 DecisionEffects |
-| **Replay** | AUDIT (event log), RESUME (checkpoint), RERUN (fresh) |
+| **Replay** | AUDIT event log available; RERUN + RESUME planned |
 | **Pass^k** | Reliability metric (k repetitions + perturbation suite) |
 
 ## Features
@@ -213,7 +213,7 @@ petfishFramework is **Alpha**. API may change before v1.0.
 git clone https://github.com/kylecui/petfishFramework.git
 cd petfishFramework
 uv sync --all-extras
-uv run pytest              # 218 tests
+uv run pytest              # 223 tests
 uv run ruff check src/ tests/
 ```
 

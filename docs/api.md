@@ -1,6 +1,6 @@
 # petfishFramework API Reference
 
-This document is the authoritative reference for the public API of `petfishFramework` v0.1.7. Every signature, field, and example below is derived from the source code and from the tests that exercise it.
+This document is the authoritative reference for the public API of `petfishFramework` v0.1.9. Every signature, field, and example below is derived from the source code and from the tests that exercise it.
 
 ## 1. Overview
 
@@ -838,7 +838,7 @@ class DefaultAllowPolicy:
 
 The framework applies permissions in two stages:
 
-1. **Visibility gate:** `Environment.tools()` decides which tools are visible to the strategy. The current skeleton returns all tools; future implementations can filter by capability projection.
+ 1. **Visibility gate:** `Environment.tools()` decides which tools are visible to the strategy. Currently returns all tools; future implementations can filter by capability projection.
 2. **Invocation gate:** `Environment.call()` evaluates every tool invocation and applies the effect returned by the policy.
 
 ```python
