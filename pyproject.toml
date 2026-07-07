@@ -21,7 +21,9 @@ classifiers = [
     "Programming Language :: Python :: 3.12",
     "Topic :: Software Development :: Libraries :: Application Frameworks",
 ]
-dependencies = []
+dependencies = [
+    "pyyaml>=6.0.3",
+]
 
 [project.urls]
 Homepage = "https://github.com/kylecui/petfishFramework"
