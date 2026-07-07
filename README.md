@@ -187,7 +187,7 @@ Run: `python examples/05_enterprise_expense.py`
 
 ## Roadmap
 
-- **v0.1.x** (current): Core runtime, permission semantics, quickstart verified ✅
+- **v0.2.x** (current): Core runtime, permission semantics, enterprise PoC, Trusted Publishing ✅
 - **v0.2.x**: Enterprise agent examples, structured audit reports
 - **v0.3.x**: Policy engine (YAML), credential broker
 - **v0.4.x**: Production hardening, deployment guides
