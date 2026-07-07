@@ -26,6 +26,8 @@ class BaseTool:
     capabilities: tuple[str, ...] = ()
     side_effect: bool = False
     idempotent: bool = True
+    external_egress: bool = False
+    requires_credentials: bool = False
     capabilities: tuple[str, ...] = ()
     _func: Callable[[dict[str, Any]], ToolResult] = field(
         default_factory=lambda: _not_implemented,

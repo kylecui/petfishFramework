@@ -116,6 +116,20 @@ class RuntimeEnvironment(Environment):
             self._costs.check_budget(self.budget)
             return result
 
+        # DEGRADE without fallback → fail-closed: block, do NOT execute original
+        if effect == DecisionEffect.DEGRADE:
+            self.events.emit(
+                "tool.degrade_failed",
+                {
+                    "tool_name": ref.name,
+                    "effect": effect.value,
+                    "reason": decision.reason or "degrade: no fallback tool provided",
+                    "executed": False,
+                    "fallback_tool": None,
+                },
+            )
+            return ToolResult(error=f"degrade_failed: {decision.reason or 'no fallback tool provided'}")
+
         # Pre-execution arg rewriting
         if effect == DecisionEffect.PARTIAL_ALLOW and decision.allowed_fields is not None:
             args = {k: v for k, v in args.items() if k in decision.allowed_fields}
@@ -193,6 +207,20 @@ class RuntimeEnvironment(Environment):
             self._costs.record_tool_call()
             self._costs.check_budget(self.budget)
             return result
+
+        # DEGRADE without fallback → fail-closed
+        if effect == DecisionEffect.DEGRADE:
+            self.events.emit(
+                "tool.degrade_failed",
+                {
+                    "tool_name": ref.name,
+                    "effect": effect.value,
+                    "reason": decision.reason or "degrade: no fallback tool provided",
+                    "executed": False,
+                    "fallback_tool": None,
+                },
+            )
+            return ToolResult(error=f"degrade_failed: {decision.reason or 'no fallback tool provided'}")
 
         if effect == DecisionEffect.PARTIAL_ALLOW and decision.allowed_fields is not None:
             args = {k: v for k, v in args.items() if k in decision.allowed_fields}
@@ -318,18 +346,31 @@ class RuntimeEnvironment(Environment):
         }
         event_type = event_map.get(effect, "tool.called")
 
-        self.events.emit(
-            event_type,
-            {
-                "tool_name": ref.name,
-                "args": args,
-                "effect": effect.value,
-                "executed": executed,
-                "result_value": result.value if not result.is_error else None,
-                "result_error": result.error if result.is_error else None,
-                "duration_ms": round(duration_ms, 2),
-            },
-        )
+        # Build event data, applying event_mask_fields if present
+        event_data = {
+            "tool_name": ref.name,
+            "args": args,
+            "effect": effect.value,
+            "executed": executed,
+            "result_value": result.value if not result.is_error else None,
+            "result_error": result.error if result.is_error else None,
+            "duration_ms": round(duration_ms, 2),
+        }
+
+        # Redact sensitive fields from audit log
+        if decision.event_mask_fields:
+            if isinstance(event_data.get("args"), dict):
+                event_data["args"] = {
+                    k: ("[REDACTED]" if k in decision.event_mask_fields else v)
+                    for k, v in event_data["args"].items()
+                }
+            if isinstance(event_data.get("result_value"), dict):
+                event_data["result_value"] = {
+                    k: ("[REDACTED]" if k in decision.event_mask_fields else v)
+                    for k, v in event_data["result_value"].items()
+                }
+
+        self.events.emit(event_type, event_data)
 
         self._costs.record_tool_call()
         self._costs.check_budget(self.budget)

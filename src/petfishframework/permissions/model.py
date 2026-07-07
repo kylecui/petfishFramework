@@ -83,6 +83,7 @@ class Decision:
     masked_fields: tuple[str, ...] | None = None  # for MASK (legacy)
     input_mask_fields: tuple[str, ...] | None = None  # for MASK: strip before execution
     output_mask_fields: tuple[str, ...] | None = None  # for MASK: mask result after execution
+    event_mask_fields: tuple[str, ...] | None = None  # for MASK: redact from audit log
     fallback_tool: str | None = None  # for DEGRADE: safe alternative tool name
     fallback_args: dict[str, Any] | None = None  # for DEGRADE: args for fallback
     constraints: dict[str, Any] = field(default_factory=dict)
