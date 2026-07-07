@@ -24,6 +24,9 @@ class BaseTool:
     input_schema: dict[str, Any] = field(default_factory=dict)
     risk_level: RiskLevel = RiskLevel.LOW
     capabilities: tuple[str, ...] = ()
+    side_effect: bool = False
+    idempotent: bool = True
+    capabilities: tuple[str, ...] = ()
     _func: Callable[[dict[str, Any]], ToolResult] = field(
         default_factory=lambda: _not_implemented,
         compare=False,

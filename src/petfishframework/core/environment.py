@@ -89,18 +89,63 @@ class RuntimeEnvironment(Environment):
                 ref, args, decision.reason or "approval required", effect, executed=False
             )
 
+        # DEGRADE: don't execute original, execute fallback instead
+        if effect == DecisionEffect.DEGRADE and decision.fallback_tool:
+            fallback = self._find_tool(decision.fallback_tool)
+            if fallback is None:
+                return self._block_tool(
+                    ref, args, f"degrade: fallback tool '{decision.fallback_tool}' not found",
+                    effect, executed=False,
+                )
+            fallback_args = decision.fallback_args if decision.fallback_args is not None else args
+            result = fallback.execute(fallback_args)
+            self.events.emit(
+                "tool.degraded",
+                {
+                    "original_tool": ref.name,
+                    "fallback_tool": decision.fallback_tool,
+                    "original_executed": False,
+                    "fallback_executed": True,
+                    "effect": effect.value,
+                    "reason": decision.reason or "degraded",
+                    "result_value": result.value if not result.is_error else None,
+                    "result_error": result.error if result.is_error else None,
+                },
+            )
+            self._costs.record_tool_call()
+            self._costs.check_budget(self.budget)
+            return result
+
         # Pre-execution arg rewriting
         if effect == DecisionEffect.PARTIAL_ALLOW and decision.allowed_fields is not None:
             args = {k: v for k, v in args.items() if k in decision.allowed_fields}
 
-        # Execute tool (ALLOW, PARTIAL_ALLOW, DEGRADE, MASK all execute)
-        result = tool.execute(args)
+        # Pre-execution: input mask (strip sensitive fields from args)
+        if effect == DecisionEffect.MASK and decision.input_mask_fields:
+            args = {k: v for k, v in args.items() if k not in decision.input_mask_fields}
 
-        # Post-execution masking
+        # Execute tool (ALLOW, PARTIAL_ALLOW, DEGRADE-without-fallback, MASK all execute)
+        import time as _time
+
+        start = _time.time()
+        try:
+            result = tool.execute(args)
+        except Exception as exc:
+            result = ToolResult(error=str(exc))
+        duration_ms = (_time.time() - start) * 1000
+
+        # Post-execution: output mask
         if effect == DecisionEffect.MASK:
-            result = ToolResult(value="[MASKED]", masked=True)
+            if decision.output_mask_fields and isinstance(result.value, dict):
+                masked_value = {
+                    k: ("[MASKED]" if k in decision.output_mask_fields else v)
+                    for k, v in result.value.items()
+                }
+                result = ToolResult(value=masked_value, masked=True)
+            else:
+                result = ToolResult(value="[MASKED]", masked=True)
 
-        return self._record_tool_call(ref, args, tool, decision, result, executed=True)
+        return self._record_tool_call(ref, args, tool, decision, result, executed=True, duration_ms=duration_ms)
 
     async def call_async(self, ref: ToolRef, args: dict) -> ToolResult:
         """Async version of call with same pre-execution enforcement."""
@@ -118,16 +163,59 @@ class RuntimeEnvironment(Environment):
                 ref, args, decision.reason or "approval required", effect, executed=False
             )
 
+        # DEGRADE: don't execute original, execute fallback instead
+        if effect == DecisionEffect.DEGRADE and decision.fallback_tool:
+            fallback = self._find_tool(decision.fallback_tool)
+            if fallback is None:
+                return self._block_tool(
+                    ref, args,
+                    f"degrade: fallback tool '{decision.fallback_tool}' not found",
+                    effect, executed=False,
+                )
+            fallback_args = decision.fallback_args if decision.fallback_args is not None else args
+            if asyncio.iscoroutinefunction(fallback.execute):
+                result = await fallback.execute(fallback_args)
+            else:
+                result = fallback.execute(fallback_args)
+            self.events.emit(
+                "tool.degraded",
+                {
+                    "original_tool": ref.name,
+                    "fallback_tool": decision.fallback_tool,
+                    "original_executed": False,
+                    "fallback_executed": True,
+                    "effect": effect.value,
+                    "reason": decision.reason or "degraded",
+                    "result_value": result.value if not result.is_error else None,
+                    "result_error": result.error if result.is_error else None,
+                },
+            )
+            self._costs.record_tool_call()
+            self._costs.check_budget(self.budget)
+            return result
+
         if effect == DecisionEffect.PARTIAL_ALLOW and decision.allowed_fields is not None:
             args = {k: v for k, v in args.items() if k in decision.allowed_fields}
+
+        # Pre-execution: input mask
+        if effect == DecisionEffect.MASK and decision.input_mask_fields:
+            args = {k: v for k, v in args.items() if k not in decision.input_mask_fields}
 
         if asyncio.iscoroutinefunction(tool.execute):
             result = await tool.execute(args)
         else:
             result = tool.execute(args)
 
+        # Post-execution: output mask
         if effect == DecisionEffect.MASK:
-            result = ToolResult(value="[MASKED]", masked=True)
+            if decision.output_mask_fields and isinstance(result.value, dict):
+                masked_value = {
+                    k: ("[MASKED]" if k in decision.output_mask_fields else v)
+                    for k, v in result.value.items()
+                }
+                result = ToolResult(value=masked_value, masked=True)
+            else:
+                result = ToolResult(value="[MASKED]", masked=True)
 
         return self._record_tool_call(ref, args, tool, decision, result, executed=True)
 
@@ -218,6 +306,7 @@ class RuntimeEnvironment(Environment):
         result: ToolResult,
         *,
         executed: bool = True,
+        duration_ms: float = 0.0,
     ) -> ToolResult:
         """Record an executed tool call with appropriate event type."""
         effect = decision.effect
@@ -238,6 +327,7 @@ class RuntimeEnvironment(Environment):
                 "executed": executed,
                 "result_value": result.value if not result.is_error else None,
                 "result_error": result.error if result.is_error else None,
+                "duration_ms": round(duration_ms, 2),
             },
         )
 

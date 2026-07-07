@@ -4,7 +4,7 @@
 
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://github.com/kylecui/petfishFramework/blob/master/LICENSE)
-[![Tests: 187](https://img.shields.io/badge/tests-187-brightgreen.svg)](https://github.com/kylecui/petfishFramework/tree/master/tests/)
+[![Tests: 210](https://img.shields.io/badge/tests-210-brightgreen.svg)](https://github.com/kylecui/petfishFramework/tree/master/tests/)
 
 **Status: Alpha** — API may change. Core runtime works; see [Roadmap](#roadmap).
 
@@ -197,8 +197,8 @@ petfishFramework is **Alpha**. API may change before v1.0.
 | DENY permission gate | ✅ Enforced (pre-execution block) |
 | REQUIRE_APPROVAL | ✅ Enforced (pre-execution block) |
 | PARTIAL_ALLOW | ✅ Enforced (pre-execution arg filtering) |
-| MASK | ✅ Enforced (post-execution result masking) |
-| DEGRADE | ⚠️ Modeled (tool switching not yet implemented) |
+| MASK | ✅ Enforced (input mask before + output mask after) |
+| DEGRADE | ✅ Enforced (fallback tool switching) |
 | Session replay | ✅ Audit replay available |
 | Deterministic rerun / resume | 📋 Planned |
 | MCP client stdio | ✅ Available |
