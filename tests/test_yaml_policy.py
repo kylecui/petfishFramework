@@ -285,3 +285,41 @@ rules:
     )
     agent.run("test")
     assert _state["executed"] == 0, "DENY rule must block tool execution"
+
+
+# ── Policy version metadata (v0.3.0 Phase A3) ──
+
+
+def test_policy_has_version() -> None:
+    """YAML policy has version field."""
+    policy = YamlPolicy.from_string("""
+version: "2.1"
+name: "versioned-policy"
+rules:
+  - name: default-allow
+    priority: 0
+    when: {}
+    effect: ALLOW
+""")
+    assert policy._version == "2.1"
+    assert policy._name == "versioned-policy"
+
+
+def test_decision_records_policy_version() -> None:
+    """Decision from YamlPolicy includes policy_version."""
+    policy = YamlPolicy.from_string("""
+version: "3.0"
+name: "versioned-policy"
+rules:
+  - name: deny-payment
+    priority: 100
+    when:
+      action.tool_name: approve_payment
+    effect: DENY
+    reason: "denied"
+""")
+    action = Action(type="call", tool_name="approve_payment")
+    decision = policy.evaluate(Subject(), action, Resource(), AccessContext())
+    assert decision.effect == DecisionEffect.DENY
+    assert decision.policy_version == "3.0"
+    assert decision.policy_name == "versioned-policy"

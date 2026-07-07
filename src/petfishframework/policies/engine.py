@@ -65,8 +65,13 @@ class YamlPolicy:
         tool_metadata = self._tool_metadata.get(action.tool_name or "", {}) if action.tool_name else {}
         for rule in self._rules:
             if match_all_conditions(rule.conditions, subject, action, resource, context, tool_metadata):
-                return _rule_to_decision(rule)
-        return Decision(effect=DecisionEffect.ALLOW, reason="no rule matched")
+                return _rule_to_decision(rule, self._version, self._name)
+        return Decision(
+            effect=DecisionEffect.ALLOW,
+            reason="no rule matched",
+            policy_version=self._version,
+            policy_name=self._name,
+        )
 
 
 def load_policy(path: str) -> YamlPolicy:
@@ -105,7 +110,7 @@ def _tuple_or_none(value: Any) -> tuple[str, ...] | None:
     return tuple(value)
 
 
-def _rule_to_decision(rule: PolicyRule) -> Decision:
+def _rule_to_decision(rule: PolicyRule, policy_version: str, policy_name: str) -> Decision:
     """Build a Decision from a matching PolicyRule."""
     return Decision(
         effect=rule.effect,
@@ -116,6 +121,8 @@ def _rule_to_decision(rule: PolicyRule) -> Decision:
         fallback_tool=rule.fallback_tool,
         fallback_args=rule.fallback_args,
         allowed_fields=rule.allowed_fields,
+        policy_version=policy_version,
+        policy_name=policy_name,
     )
 
 

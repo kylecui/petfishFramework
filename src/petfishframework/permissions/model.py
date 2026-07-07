@@ -87,6 +87,8 @@ class Decision:
     fallback_tool: str | None = None  # for DEGRADE: safe alternative tool name
     fallback_args: dict[str, Any] | None = None  # for DEGRADE: args for fallback
     constraints: dict[str, Any] = field(default_factory=dict)
+    policy_version: str | None = None  # source policy version (additive, backward compatible)
+    policy_name: str | None = None  # source policy name (additive, backward compatible)
 
 
 # ---------------------------------------------------------------------------

@@ -1,0 +1,70 @@
+"""Credential broker — manages secrets and issues scoped, time-limited tokens."""
+from __future__ import annotations
+
+import time
+import uuid
+
+from .token import ScopedToken
+
+
+class CredentialBroker:
+    """Manages credentials and issues scoped tokens.
+
+    Agents register real credentials. Broker issues short-lived tokens
+    scoped to specific tools. Tokens auto-expire and can be revoked.
+    """
+
+    def __init__(self, default_ttl_s: float = 3600) -> None:
+        self._credentials: dict[str, str] = {}  # name → secret
+        self._active_tokens: dict[str, ScopedToken] = {}  # token_id → token
+        self._default_ttl = default_ttl_s
+
+    def register_credential(self, name: str, secret: str) -> None:
+        """Register a real credential. Secret is stored internally only."""
+        self._credentials[name] = secret
+
+    def issue_token(
+        self,
+        name: str,
+        tool_name: str,
+        ttl_s: float | None = None,
+    ) -> ScopedToken:
+        """Issue a scoped, time-limited token for a specific tool."""
+        if name not in self._credentials:
+            raise KeyError(f"Credential not registered: {name}")
+
+        secret = self._credentials[name]
+        ttl = ttl_s if ttl_s is not None else self._default_ttl
+        token_id = uuid.uuid4().hex
+        expires_at = time.time() + ttl
+
+        token = ScopedToken(
+            token_id=token_id,
+            tool_name=tool_name,
+            expires_at=expires_at,
+            _secret=secret,
+        )
+        self._active_tokens[token_id] = token
+        return token
+
+    def validate_token(self, token_id: str) -> bool:
+        """Check if a token is valid."""
+        token = self._active_tokens.get(token_id)
+        if token is None:
+            return False
+        return token.is_valid()
+
+    def revoke_token(self, token_id: str) -> None:
+        """Revoke a token immediately."""
+        self._active_tokens.pop(token_id, None)
+
+    def cleanup_expired(self) -> int:
+        """Remove all expired tokens. Returns count removed."""
+        expired = [
+            token_id
+            for token_id, token in self._active_tokens.items()
+            if not token.is_valid()
+        ]
+        for token_id in expired:
+            del self._active_tokens[token_id]
+        return len(expired)

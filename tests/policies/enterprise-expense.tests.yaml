@@ -1,0 +1,45 @@
+policy_string: |
+  version: "1.0"
+  name: "test-expense-policy"
+  rules:
+    - name: deny-non-finance
+      priority: 100
+      when:
+        action.tool_name: approve_payment
+        subject.role_not_in: [finance, admin]
+      effect: DENY
+      reason: "only finance/admin"
+    - name: require-approval-side-effects
+      priority: 90
+      when:
+        tool.side_effect: true
+      effect: REQUIRE_APPROVAL
+      reason: "side_effect needs approval"
+    - name: default-allow
+      priority: 0
+      when: {}
+      effect: ALLOW
+      reason: "default"
+
+tests:
+  - name: analyst-cannot-approve
+    input:
+      subject.roles: [analyst]
+      action.tool_name: approve_payment
+    expect:
+      effect: DENY
+
+  - name: finance-unknown-tool-allowed
+    input:
+      subject.roles: [finance]
+      action.tool_name: unknown_tool
+    expect:
+      effect: ALLOW
+
+  - name: finance-side-effect-needs-approval
+    input:
+      subject.roles: [finance]
+      action.tool_name: dangerous_tool
+      tool.side_effect: true
+    expect:
+      effect: REQUIRE_APPROVAL
