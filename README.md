@@ -181,10 +181,31 @@ print(result.summary())
 
 ## Roadmap
 
-- **v0.1.x** (current): Core runtime works, quickstart verified ✅
+- **v0.1.x** (current): Core runtime, permission semantics, quickstart verified ✅
 - **v0.2.x**: Enterprise agent examples, structured audit reports
-- **v0.3.x**: Policy engine (YAML), MASK enforcement, credential broker
+- **v0.3.x**: Policy engine (YAML), credential broker
 - **v0.4.x**: Production hardening, deployment guides
+
+## Current Limitations
+
+petfishFramework is **Alpha**. API may change before v1.0.
+
+| Capability | Status |
+|---|---|
+| Zero-cost quickstart | ✅ Available |
+| ReAct / Budget / Pass^k | ✅ Available |
+| DENY permission gate | ✅ Enforced (pre-execution block) |
+| REQUIRE_APPROVAL | ✅ Enforced (pre-execution block) |
+| PARTIAL_ALLOW | ✅ Enforced (pre-execution arg filtering) |
+| MASK | ✅ Enforced (post-execution result masking) |
+| DEGRADE | ⚠️ Modeled (tool switching not yet implemented) |
+| Session replay | ✅ Audit replay available |
+| Deterministic rerun / resume | 📋 Planned |
+| MCP client stdio | ✅ Available |
+| MCP server mode | 📋 Planned |
+| Structured output / conversation memory | ✅ Available |
+| LATS / LLM+P | ⚠️ Lightweight implementations |
+| CRAG / Adaptive-RAG | ⚠️ Lightweight reference implementations |
 
 ## Development
 

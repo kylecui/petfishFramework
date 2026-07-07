@@ -103,8 +103,8 @@ class TestRuntimeErrors:
 
         result = session.run()
 
-        assert "unknown_tool" in result.answer
-        denied = [event for event in sink.events if event.type == "tool.denied"]
+        assert "blocked" in result.answer or "unknown" in result.answer
+        denied = [event for event in sink.events if event.type == "tool.blocked"]
         assert len(denied) == 1
         assert denied[0].data["tool_name"] == "nonexistent"
 

@@ -56,7 +56,7 @@ def test_budget_token_exceeded() -> None:
 
 
 def test_unknown_tool_denied() -> None:
-    """A tool call to an unknown tool is denied and emits a tool.denied event."""
+    """A tool call to an unknown tool is denied and emits a tool.blocked event."""
     model = FakeModel.script_tool_then_answer(
         tool_name="nonexistent",
         tool_args={},
@@ -73,7 +73,7 @@ def test_unknown_tool_denied() -> None:
 
     session.run()
 
-    denied_events = [e for e in sink.events if e.type == "tool.denied"]
+    denied_events = [e for e in sink.events if e.type == "tool.blocked"]
     assert len(denied_events) == 1
     assert denied_events[0].data["effect"] == DecisionEffect.DENY.value
     assert denied_events[0].data["tool_name"] == "nonexistent"
@@ -101,7 +101,7 @@ def test_event_audit_completeness() -> None:
     assert "session.start" in types
     assert "model.called" in types
     assert "session.end" in types
-    assert "tool.called" in types or "tool.denied" in types
+    assert "tool.called" in types or "tool.blocked" in types
 
 
 def test_replay_returns_events() -> None:

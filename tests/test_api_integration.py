@@ -265,7 +265,7 @@ class TestPermissionIntegration:
         result = session.run()
 
         assert isinstance(result.answer, str)
-        denied = [event for event in sink.events if event.type == "tool.denied"]
+        denied = [event for event in sink.events if event.type == "tool.blocked"]
         assert len(denied) == 1
         assert denied[0].data["tool_name"] == "blocked_tool"
         assert denied[0].data["reason"] == "blocked by policy"

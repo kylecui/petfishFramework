@@ -61,39 +61,75 @@ class RuntimeEnvironment(Environment):
         return list(self._tools)
 
     def call(self, ref: ToolRef, args: dict) -> ToolResult:
-        """Invoke a tool through the permission + budget + audit gate."""
-        tool, decision = self._prepare_tool_call(ref, args)
+        """Invoke a tool through the permission + budget + audit gate.
 
+        Pre-execution effects (block before tool runs):
+          DENY, REQUIRE_APPROVAL → tool does NOT execute
+          PARTIAL_ALLOW → args filtered BEFORE execution
+          DEGRADE → logged (tool switching is future work)
+        Post-execution effects (applied after tool runs):
+          MASK → result masked AFTER execution
+          ALLOW → normal execution
+        """
+        tool, decision = self._prepare_tool_call(ref, args)
+        effect = decision.effect
+
+        # Unknown tool — block with DENY regardless of policy
         if tool is None:
-            return self._deny_tool(
-                ref, args, "unknown tool", DecisionEffect.DENY.value, error_code="unknown_tool"
+            return self._block_tool(
+                ref, args, "unknown tool", DecisionEffect.DENY, executed=False
             )
 
-        if decision.effect == DecisionEffect.DENY:
-            reason = decision.reason or "policy denied"
-            return self._deny_tool(ref, args, reason, decision.effect.value)
+        # Pre-execution blocks — tool must NOT run
+        if effect == DecisionEffect.DENY:
+            return self._block_tool(ref, args, decision.reason or "denied", effect, executed=False)
 
+        if effect == DecisionEffect.REQUIRE_APPROVAL:
+            return self._block_tool(
+                ref, args, decision.reason or "approval required", effect, executed=False
+            )
+
+        # Pre-execution arg rewriting
+        if effect == DecisionEffect.PARTIAL_ALLOW and decision.allowed_fields is not None:
+            args = {k: v for k, v in args.items() if k in decision.allowed_fields}
+
+        # Execute tool (ALLOW, PARTIAL_ALLOW, DEGRADE, MASK all execute)
         result = tool.execute(args)
-        return self._finalize_tool_call(ref, args, tool, decision, result)
+
+        # Post-execution masking
+        if effect == DecisionEffect.MASK:
+            result = ToolResult(value="[MASKED]", masked=True)
+
+        return self._record_tool_call(ref, args, tool, decision, result, executed=True)
 
     async def call_async(self, ref: ToolRef, args: dict) -> ToolResult:
-        """Async version of call; awaits async tool.execute when detected."""
+        """Async version of call with same pre-execution enforcement."""
         tool, decision = self._prepare_tool_call(ref, args)
+        effect = decision.effect
 
         if tool is None:
-            return self._deny_tool(
-                ref, args, "unknown tool", DecisionEffect.DENY.value, error_code="unknown_tool"
+            return self._block_tool(ref, args, "unknown tool", effect, executed=False)
+
+        if effect == DecisionEffect.DENY:
+            return self._block_tool(ref, args, decision.reason or "denied", effect, executed=False)
+
+        if effect == DecisionEffect.REQUIRE_APPROVAL:
+            return self._block_tool(
+                ref, args, decision.reason or "approval required", effect, executed=False
             )
 
-        if decision.effect == DecisionEffect.DENY:
-            reason = decision.reason or "policy denied"
-            return self._deny_tool(ref, args, reason, decision.effect.value)
+        if effect == DecisionEffect.PARTIAL_ALLOW and decision.allowed_fields is not None:
+            args = {k: v for k, v in args.items() if k in decision.allowed_fields}
 
         if asyncio.iscoroutinefunction(tool.execute):
             result = await tool.execute(args)
         else:
             result = tool.execute(args)
-        return self._finalize_tool_call(ref, args, tool, decision, result)
+
+        if effect == DecisionEffect.MASK:
+            result = ToolResult(value="[MASKED]", masked=True)
+
+        return self._record_tool_call(ref, args, tool, decision, result, executed=True)
 
     def retrieve(self, query: str, top_k: int = 5) -> list[Snippet]:
         """Retrieve knowledge snippets (skeleton: empty if no retriever)."""
@@ -143,57 +179,63 @@ class RuntimeEnvironment(Environment):
 
         return tool, decision
 
-    def _deny_tool(
+    def _block_tool(
         self,
         ref: ToolRef,
         args: dict,
         reason: str,
-        effect_value: str,
-        error_code: str | None = None,
+        effect: DecisionEffect,
+        *,
+        executed: bool = False,
     ) -> ToolResult:
-        """Emit tool.denied and return an error ToolResult."""
+        """Record a blocked tool call (tool did NOT execute) and return error.
+
+        Used for DENY, REQUIRE_APPROVAL, and unknown tools.
+        """
+        event_type = (
+            "tool.approval_required"
+            if effect == DecisionEffect.REQUIRE_APPROVAL
+            else "tool.blocked"
+        )
         self.events.emit(
-            "tool.denied",
+            event_type,
             {
                 "tool_name": ref.name,
                 "args": args,
-                "effect": effect_value,
+                "effect": effect.value,
                 "reason": reason,
+                "executed": executed,
             },
         )
-        return ToolResult(error=error_code if error_code is not None else f"denied: {reason}")
+        return ToolResult(error=f"blocked: {reason}")
 
-    def _finalize_tool_call(
+    def _record_tool_call(
         self,
         ref: ToolRef,
         args: dict,
         tool: Tool,
         decision: Any,
         result: ToolResult,
+        *,
+        executed: bool = True,
     ) -> ToolResult:
-        """Post-execution audit, masking, and budget enforcement."""
-        if decision.effect == DecisionEffect.MASK:
-            masked = ToolResult(value="[MASKED]", masked=True)
-            self.events.emit(
-                "tool.masked",
-                {
-                    "tool_name": ref.name,
-                    "args": args,
-                    "effect": DecisionEffect.MASK.value,
-                },
-            )
-            return masked
-
-        # Skeleton: treat other non-allow effects as deny for safety.
-        if decision.effect != DecisionEffect.ALLOW:
-            reason = decision.reason or f"effect {decision.effect.value} not supported"
-            return self._deny_tool(ref, args, reason, decision.effect.value)
+        """Record an executed tool call with appropriate event type."""
+        effect = decision.effect
+        event_map = {
+            DecisionEffect.ALLOW: "tool.called",
+            DecisionEffect.PARTIAL_ALLOW: "tool.partial_allowed",
+            DecisionEffect.DEGRADE: "tool.degraded",
+            DecisionEffect.MASK: "tool.masked",
+        }
+        event_type = event_map.get(effect, "tool.called")
 
         self.events.emit(
-            "tool.called",
+            event_type,
             {
                 "tool_name": ref.name,
                 "args": args,
+                "effect": effect.value,
+                "executed": executed,
                 "result_value": result.value if not result.is_error else None,
                 "result_error": result.error if result.is_error else None,
             },
