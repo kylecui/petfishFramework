@@ -321,11 +321,13 @@ class Session:
     session_id: str = field(default_factory=lambda: uuid.uuid4().hex[:16])
 
     def run(self) -> Result: ...
-    def replay(self) -> tuple[Event, ...]: ...
+    def replay(self, mode: object = None) -> tuple[Event, ...]: ...
     def checkpoint(self) -> None: ...
 ```
 
 `run` builds the `RuntimeEnvironment` and `RunContext`, emits `session.start`, executes the strategy, attaches accumulated `Usage` and `session_id`, and emits `session.end`.
+
+`replay` accepts an optional `ReplayMode` argument. In v0.1.9 all modes return the stored event log; full deterministic replay via `RecordingEnvironment` and `ReplayEnvironment` is available in `petfishframework.reliability.replay`.
 
 ```python
 agent = Agent(model=FakeModel(responses=(ModelResponse(content="ok"),)))
@@ -438,6 +440,10 @@ class BaseTool:
     input_schema: dict[str, Any] = field(default_factory=dict)
     risk_level: RiskLevel = RiskLevel.LOW
     capabilities: tuple[str, ...] = ()
+    side_effect: bool = False
+    idempotent: bool = True
+    external_egress: bool = False
+    requires_credentials: bool = False
 
     def execute(self, args: dict[str, Any]) -> ToolResult: ...
 
@@ -451,22 +457,34 @@ def tool(
 ) -> Callable[[Callable[..., Any]], BaseTool]: ...
 ```
 
-`@tool` wraps a plain function as a `BaseTool`. Arguments are passed as keyword arguments.
+`@tool` wraps a plain function as a `BaseTool`. Arguments are passed as keyword arguments. Metadata flags default to safe values (`side_effect=False`, `idempotent=True`, `external_egress=False`, `requires_credentials=False`). Set them explicitly by subclassing `BaseTool` or by direct instantiation when a tool performs writes, calls external services, or needs credentials.
+
+Field details:
+
+- `side_effect` — `True` if the tool mutates state (files, databases, remote APIs).
+- `idempotent` — `False` if repeated calls with the same args may produce different effects.
+- `external_egress` — `True` if the tool sends data outside the local process.
+- `requires_credentials` — `True` if the tool needs an API key, token, or other secret.
+
+Example:
 
 ```python
-from petfishframework.tools.base import tool
+from dataclasses import dataclass, field
+from petfishframework.tools.base import BaseTool
+from petfishframework.core.types import ToolResult
 
-@tool(
-    name="greet",
-    description="Greet someone",
-    input_schema={
-        "type": "object",
-        "properties": {"name": {"type": "string"}},
-        "required": ["name"],
-    },
-)
-def greet(name: str) -> str:
-    return f"Hello, {name}!"
+@dataclass
+class WriteDatabase(BaseTool):
+    name: str = "write_db"
+    description: str = "Writes to the database"
+    input_schema: dict = field(default_factory=lambda: {"type": "object", "properties": {}})
+    side_effect: bool = True
+    idempotent: bool = False
+    external_egress: bool = True
+    requires_credentials: bool = True
+
+    def execute(self, args: dict) -> ToolResult:
+        return ToolResult(value="written")
 ```
 
 ### Built-in tools
@@ -756,6 +774,40 @@ replay = replay_environment_from_recording(recording)
 result2 = strategy.run(RunContext(..., env=replay, ...))
 ```
 
+### Audit Report
+
+```python
+@dataclass(frozen=True)
+class AuditReport:
+    session_id: str
+    events: tuple[Event, ...]
+    result: Result | None = None
+
+    def to_markdown(self) -> str: ...
+    def to_json(self) -> str: ...
+
+
+def audit_report_from_session(
+    session: Session,
+    result: Result | None = None,
+) -> AuditReport: ...
+```
+
+`AuditReport` turns a session's event log into a human-readable Markdown report or a JSON trace export. If `result` is not provided, `audit_report_from_session` reads `session._result` set by `Session.run()`.
+
+`to_markdown()` produces sections for summary, timeline, tool calls, permission decisions, and final output. `to_json()` exports the raw events plus a compact result summary.
+
+```python
+from petfishframework.reliability import audit_report_from_session
+
+session = agent.session("What is 2 + 3?")
+session.run()
+
+report = audit_report_from_session(session)
+print(report.to_markdown())
+print(report.to_json())
+```
+
 ## 11. Permissions
 
 ### DecisionEffect
@@ -769,6 +821,20 @@ class DecisionEffect(Enum):
     REQUIRE_APPROVAL = "require_approval"  # needs human approval first
     DEGRADE = "degrade"                # downgrade response quality
 ```
+
+### DecisionEffect execution semantics
+
+| Effect | Pre-execution | What executes | Post-execution | Event |
+|---|---|---|---|---|
+| `ALLOW` | — | original tool | — | `tool.called` |
+| `DENY` | block | nothing | — | `tool.blocked` |
+| `REQUIRE_APPROVAL` | block | nothing | — | `tool.approval_required` |
+| `PARTIAL_ALLOW` | filter args to `allowed_fields` | original tool | — | `tool.partial_allowed` |
+| `MASK` | mask `input_mask_fields` | original tool | mask `output_mask_fields` | `tool.masked` |
+| `DEGRADE` (with `fallback_tool`) | — | `fallback_tool` with `fallback_args` | — | `tool.degraded` |
+| `DEGRADE` (without fallback) | block | nothing | — | `tool.degrade_failed` |
+
+`DENY`, `REQUIRE_APPROVAL`, and `DEGRADE` without a fallback never execute the original tool. `MASK` executes the original tool on redacted arguments, then redacts the result before returning it. `DEGRADE` with a fallback runs the fallback tool and records the original as not executed.
 
 ### SARC model
 
@@ -804,10 +870,78 @@ class AccessContext:
 class Decision:
     effect: DecisionEffect
     reason: str = ""
-    allowed_fields: tuple[str, ...] | None = None
-    masked_fields: tuple[str, ...] | None = None
+    allowed_fields: tuple[str, ...] | None = None       # for PARTIAL_ALLOW
+    masked_fields: tuple[str, ...] | None = None        # for MASK (legacy flat list)
+    input_mask_fields: tuple[str, ...] | None = None    # for MASK: redact args before execution
+    output_mask_fields: tuple[str, ...] | None = None   # for MASK: redact result after execution
+    event_mask_fields: tuple[str, ...] | None = None  # for MASK: redact audit event data
+    fallback_tool: str | None = None                    # for DEGRADE: safe alternative tool name
+    fallback_args: dict[str, Any] | None = None         # for DEGRADE: args for fallback_tool
     constraints: dict[str, Any] = field(default_factory=dict)
 ```
+
+Field details:
+
+- `allowed_fields` — whitelist of argument keys permitted under `PARTIAL_ALLOW`.
+- `masked_fields` — legacy flat list of keys to mask (still honored by the runtime).
+- `input_mask_fields` — dot-paths stripped from arguments before the tool runs.
+- `output_mask_fields` — dot-paths redacted from the tool result.
+- `event_mask_fields` — dot-paths redacted from the emitted audit event (`args` and `result_value`).
+- `fallback_tool` / `fallback_args` — safe alternative invoked when `effect == DEGRADE`.
+
+Examples:
+
+```python
+# Mask PII in arguments, result, and audit log
+Decision(
+    effect=DecisionEffect.MASK,
+    reason="hide PII",
+    input_mask_fields=("user.ssn",),
+    output_mask_fields=("user.ssn", "user.cards[*].number"),
+    event_mask_fields=("user.ssn",),
+)
+
+# Degrade to a safer tool
+Decision(
+    effect=DecisionEffect.DEGRADE,
+    reason="high-risk tool",
+    fallback_tool="safe_calculator",
+    fallback_args={"expression": "2 + 3"},
+)
+```
+
+#### Mask dot-path syntax
+
+`input_mask_fields`, `output_mask_fields`, and `event_mask_fields` support dot-paths and list wildcards:
+
+- Flat key: `"ssn"` redacts the top-level key.
+- Nested key: `"user.ssn"` redacts `args["user"]["ssn"]`.
+- List wildcard: `"user.cards[*].number"` redacts `number` inside every dict in `args["user"]["cards"]`.
+
+Example:
+
+```python
+args = {
+    "user": {
+        "name": "Alice",
+        "ssn": "123-45-6789",
+        "cards": [
+            {"number": "4111-1111-1111-1111", "exp": "12/26"},
+            {"number": "4222-2222-2222-2222", "exp": "11/27"},
+        ],
+    },
+}
+
+Decision(
+    effect=DecisionEffect.MASK,
+    input_mask_fields=("user.ssn", "user.cards[*].number"),
+    output_mask_fields=("user.ssn",),
+    event_mask_fields=("user.ssn",),
+)
+# args becomes: user.name kept, user.ssn masked, both card numbers masked
+```
+
+`event_mask_fields` applies to both the emitted event's `args` and `result_value` dictionaries, so a single path such as `"user.ssn"` redacts that field from both.
 
 ### PermissionPolicy
 
@@ -833,6 +967,32 @@ class DefaultAllowPolicy:
 ```
 
 `DefaultAllowPolicy` returns `ALLOW` for everything so the gate structure is wired from the start. Replace it with a real policy to enforce deny-by-default without changing any strategy code.
+
+### DenyByDefaultPolicy
+
+```python
+@dataclass
+class DenyByDefaultPolicy:
+    allowed_tools: set[str] = field(default_factory=set)
+
+    def evaluate(
+        self,
+        subject: Subject,
+        action: Action,
+        resource: Resource,
+        context: AccessContext,
+    ) -> Decision: ...
+```
+
+`DenyByDefaultPolicy` blocks every tool except those whose names are in `allowed_tools`. Use it for security-first defaults or to explicitly whitelist capabilities.
+
+```python
+from petfishframework.permissions.model import DenyByDefaultPolicy
+
+policy = DenyByDefaultPolicy(allowed_tools={"calculator", "word_sorter"})
+agent = Agent(model=..., reasoning=..., tools=..., permission_policy=policy)
+# calculator / word_sorter → ALLOW, everything else → DENY
+```
 
 ### Two-gate model
 
@@ -861,6 +1021,57 @@ class NoDeletePolicy(PermissionPolicy):
 agent = Agent(model=..., reasoning=..., tools=..., permission_policy=NoDeletePolicy())
 ```
 
+### SafeByDefaultPolicy
+
+Policies can also inspect tool metadata (`side_effect`, `external_egress`, etc.) to make decisions. The example below requires approval for state-changing tools and degrades tools that call outside the process.
+
+```python
+from petfishframework.permissions.model import Decision, DecisionEffect
+from petfishframework.tools.base import BaseTool
+
+class SafeByDefaultPolicy:
+    def __init__(self):
+        self._tools = {}
+
+    def register_tools(self, tools):
+        for t in tools:
+            self._tools[t.name] = t
+
+    def evaluate(self, subject, action, resource, context):
+        tool = self._tools.get(action.tool_name)
+        if tool is None:
+            return Decision(effect=DecisionEffect.ALLOW)
+
+        if tool.side_effect:
+            return Decision(
+                effect=DecisionEffect.REQUIRE_APPROVAL,
+                reason=f"tool '{tool.name}' has side_effect=True",
+            )
+
+        if tool.external_egress:
+            return Decision(
+                effect=DecisionEffect.DEGRADE,
+                reason=f"tool '{tool.name}' has external_egress=True",
+                fallback_tool=None,  # no fallback → fail-closed
+            )
+
+        return Decision(effect=DecisionEffect.ALLOW)
+
+# Usage with a state-changing tool
+write_tool = WriteDatabase()  # side_effect=True, external_egress=True
+calc = Calculator()
+
+policy = SafeByDefaultPolicy()
+policy.register_tools((write_tool, calc))
+
+agent = Agent(
+    model=model,
+    reasoning=ReAct(),
+    tools=(write_tool, calc),
+    permission_policy=policy,
+)
+```
+
 ## 12. Observability
 
 ### EventEmitter and Event
@@ -885,7 +1096,21 @@ class EventEmitter:
     def clear(self) -> None: ...
 ```
 
-The event stream is append-only. Sinks can observe events without affecting the log. Built-in event types used by the framework include `session.start`, `session.end`, `model.called`, `tool.called`, `tool.denied`, `tool.masked`, `retrieval`, `crag.evaluate`, `crag.route`, `adaptive.classify`, `adaptive.route`, `lats.expand`, `lats.evaluate`, `lats.select`, `llm+p.translate`, `llm+p.plan`, and `llm+p.backtranslate`.
+The event stream is append-only. Sinks can observe events without affecting the log. Built-in event types used by the framework include `session.start`, `session.end`, `model.called`, `tool.called`, `tool.blocked`, `tool.approval_required`, `tool.masked`, `tool.partial_allowed`, `tool.degraded`, `tool.degrade_failed`, `retrieval`, `crag.evaluate`, `crag.route`, `adaptive.classify`, `adaptive.route`, `lats.expand`, `lats.evaluate`, `lats.select`, `llm+p.translate`, `llm+p.plan`, and `llm+p.backtranslate`.
+
+#### Tool event fields
+
+| Event type | Meaning | `executed` | `duration_ms` | `error` |
+|---|---|---|---|---|
+| `tool.called` | normal execution | `True` | recorded | `result_error` if the tool raised |
+| `tool.blocked` | `DENY` or unknown tool | `False` | — | `blocked: <reason>` |
+| `tool.approval_required` | `REQUIRE_APPROVAL` | `False` | — | `blocked: approval required` |
+| `tool.partial_allowed` | `PARTIAL_ALLOW` | `True` | recorded | `result_error` if the tool raised |
+| `tool.masked` | `MASK` result | `True` | recorded | `result_error` if the tool raised |
+| `tool.degraded` | `DEGRADE` with `fallback_tool` | fallback `True` | — | `result_error` if fallback raised |
+| `tool.degrade_failed` | `DEGRADE` without fallback | `False` | — | `degrade_failed: <reason>` |
+
+`executed` indicates whether any tool body ran. `duration_ms` is recorded for executed calls. Errors are reported in `result_error`; blocked or failed-degrade calls report a string in the returned `ToolResult.error` and in the event's `reason` field.
 
 ### Sinks
 
