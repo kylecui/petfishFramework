@@ -72,7 +72,7 @@ def test_input_mask_strips_fields_before_execution() -> None:
     )
     agent.run("test")
     assert "name" in _captured_args, "allowed field was masked"
-    assert "ssn" not in _captured_args, "ssn was NOT stripped before execution"
+    assert "ssn" not in _captured_args or _captured_args.get("ssn") == "[MASKED]", "ssn was NOT masked before execution"
 
 
 def test_output_mask_applies_after_execution() -> None:

@@ -1,6 +1,6 @@
 # petfishFramework API Reference
 
-This document is the authoritative reference for the public API of `petfishFramework` v0.1.0. Every signature, field, and example below is derived from the source code and from the tests that exercise it.
+This document is the authoritative reference for the public API of `petfishFramework` v0.1.7. Every signature, field, and example below is derived from the source code and from the tests that exercise it.
 
 ## 1. Overview
 
@@ -515,7 +515,7 @@ class MCPClient:
     def call_tool(self, name: str, args: dict[str, Any]) -> Any: ...
 ```
 
-`MCPClient` is a skeleton in-process MCP tool registry. Real stdio transport is stubbed by `connect_stdio`, which raises `NotImplementedError`. In tests and co-located servers, register specs directly.
+`MCPClient` is an in-process MCP tool registry. Real stdio transport is available via `connect_stdio()`, which spawns a real MCP server subprocess and performs JSON-RPC handshake. For tests and co-located servers, register specs directly.
 
 ```python
 from petfishframework.mcp import MCPClient, MCPToolSpec
@@ -537,7 +537,7 @@ mcp_tools = tuple(client.discover_tools())
 agent = Agent(model=..., reasoning=ReAct(), tools=mcp_tools + (Calculator(),))
 ```
 
-Both real transport directions are stubs in the current release: `connect_stdio(...)` and `serve_as_mcp(...)` raise `NotImplementedError` and are reserved for Phase 4.
+MCP client stdio transport is available: `connect_stdio(...)` spawns a real MCP server subprocess. MCP server mode (`serve_as_mcp(...)`) is planned for future release.
 
 Discovered MCP tools are indistinguishable from native tools inside an agent.
 

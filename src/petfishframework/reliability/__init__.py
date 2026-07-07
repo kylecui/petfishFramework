@@ -5,6 +5,7 @@ Pass^k embodies contract-driven-harness freeze+perturb methodology.
 """
 from __future__ import annotations
 
+from .audit_report import AuditReport, audit_report_from_session
 from .cost import CostAccountant
 from .cost_report import CostReport
 from .pass_at_k import (
@@ -41,6 +42,8 @@ from .retry import (
 from .timeout import OperationTimedOut, TimeoutPolicy, with_timeout
 
 __all__ = [
+    "AuditReport",
+    "audit_report_from_session",
     "CostAccountant",
     "CostReport",
     # pass_at_k

@@ -6,6 +6,7 @@ permission gate (SARC), cost accounting (Budget), and audit events.
 from __future__ import annotations
 
 import asyncio
+import copy
 from dataclasses import dataclass
 from typing import Any
 
@@ -30,6 +31,40 @@ from .types import (
     ToolResult,
     Usage,
 )
+
+
+def _apply_mask_to_dict(data: dict, mask_fields: tuple[str, ...]) -> dict:
+    """Apply mask to a dict, supporting flat keys and dot-path nested keys.
+
+    Flat: "ssn" → redacts top-level key
+    Nested: "user.ssn" → redacts nested field
+    """
+    result = copy.deepcopy(data)
+    for field_path in mask_fields:
+        parts = field_path.split(".")
+        if len(parts) == 1:
+            if parts[0] in result:
+                result[parts[0]] = "[MASKED]"
+        else:
+            _mask_nested(result, parts)
+    return result
+
+
+def _mask_nested(data: Any, path_parts: list[str]) -> None:
+    """Recursively mask a nested field following dot-path."""
+    if not isinstance(data, dict) or not path_parts:
+        return
+    key = path_parts[0]
+    if len(path_parts) == 1:
+        if key in data:
+            data[key] = "[MASKED]"
+    else:
+        if key in data and isinstance(data[key], dict):
+            _mask_nested(data[key], path_parts[1:])
+        elif key in data and isinstance(data[key], list):
+            for item in data[key]:
+                if isinstance(item, dict):
+                    _mask_nested(item, path_parts[1:])
 
 
 @dataclass
@@ -134,9 +169,9 @@ class RuntimeEnvironment(Environment):
         if effect == DecisionEffect.PARTIAL_ALLOW and decision.allowed_fields is not None:
             args = {k: v for k, v in args.items() if k in decision.allowed_fields}
 
-        # Pre-execution: input mask (strip sensitive fields from args)
+        # Pre-execution: input mask (strip/redact sensitive fields from args)
         if effect == DecisionEffect.MASK and decision.input_mask_fields:
-            args = {k: v for k, v in args.items() if k not in decision.input_mask_fields}
+            args = _apply_mask_to_dict(args, decision.input_mask_fields)
 
         # Execute tool (ALLOW, PARTIAL_ALLOW, DEGRADE-without-fallback, MASK all execute)
         import time as _time
@@ -151,11 +186,10 @@ class RuntimeEnvironment(Environment):
         # Post-execution: output mask
         if effect == DecisionEffect.MASK:
             if decision.output_mask_fields and isinstance(result.value, dict):
-                masked_value = {
-                    k: ("[MASKED]" if k in decision.output_mask_fields else v)
-                    for k, v in result.value.items()
-                }
-                result = ToolResult(value=masked_value, masked=True)
+                result = ToolResult(
+                    value=_apply_mask_to_dict(result.value, decision.output_mask_fields),
+                    masked=True,
+                )
             else:
                 result = ToolResult(value="[MASKED]", masked=True)
 
@@ -227,7 +261,7 @@ class RuntimeEnvironment(Environment):
 
         # Pre-execution: input mask
         if effect == DecisionEffect.MASK and decision.input_mask_fields:
-            args = {k: v for k, v in args.items() if k not in decision.input_mask_fields}
+            args = _apply_mask_to_dict(args, decision.input_mask_fields)
 
         if asyncio.iscoroutinefunction(tool.execute):
             result = await tool.execute(args)
@@ -237,11 +271,10 @@ class RuntimeEnvironment(Environment):
         # Post-execution: output mask
         if effect == DecisionEffect.MASK:
             if decision.output_mask_fields and isinstance(result.value, dict):
-                masked_value = {
-                    k: ("[MASKED]" if k in decision.output_mask_fields else v)
-                    for k, v in result.value.items()
-                }
-                result = ToolResult(value=masked_value, masked=True)
+                result = ToolResult(
+                    value=_apply_mask_to_dict(result.value, decision.output_mask_fields),
+                    masked=True,
+                )
             else:
                 result = ToolResult(value="[MASKED]", masked=True)
 
@@ -357,18 +390,16 @@ class RuntimeEnvironment(Environment):
             "duration_ms": round(duration_ms, 2),
         }
 
-        # Redact sensitive fields from audit log
+        # Redact sensitive fields from audit log (supports nested dot-path)
         if decision.event_mask_fields:
             if isinstance(event_data.get("args"), dict):
-                event_data["args"] = {
-                    k: ("[REDACTED]" if k in decision.event_mask_fields else v)
-                    for k, v in event_data["args"].items()
-                }
+                event_data["args"] = _apply_mask_to_dict(
+                    event_data["args"], decision.event_mask_fields
+                )
             if isinstance(event_data.get("result_value"), dict):
-                event_data["result_value"] = {
-                    k: ("[REDACTED]" if k in decision.event_mask_fields else v)
-                    for k, v in event_data["result_value"].items()
-                }
+                event_data["result_value"] = _apply_mask_to_dict(
+                    event_data["result_value"], decision.event_mask_fields
+                )
 
         self.events.emit(event_type, event_data)
 
