@@ -164,10 +164,17 @@ class Session:
             },
         )
 
-    def replay(self) -> tuple:
-        """Return the recorded event log (AUDIT replay mode).
+    def replay(self, mode: object = None) -> tuple:
+        """Return the recorded event log.
 
-        RESUME and RERUN replay modes are TODO (open question 3).
+        Args:
+            mode: Optional ReplayMode (from reliability.replay). Currently
+                  all modes return the event log. AUDIT is the default.
+                  RESUME/RERUN require RecordingEnvironment/ReplayEnvironment
+                  from reliability.replay for full deterministic replay.
+
+        Returns:
+            Tuple of Event objects from the session's event log.
         """
         return self.events.events
 

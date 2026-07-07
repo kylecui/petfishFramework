@@ -1,37 +1,14 @@
 # petfishFramework
 
-> The AI agent framework where reliability is architecture, not an afterthought.
+> A lightweight Python framework for reliable, auditable, budget-aware, and permission-aware AI agents.
 
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://github.com/kylecui/petfishFramework/blob/master/LICENSE)
 [![Tests: 187](https://img.shields.io/badge/tests-187-brightgreen.svg)](https://github.com/kylecui/petfishFramework/tree/master/tests/)
 
-## Why petfishFramework?
+**Status: Alpha** — API may change. Core runtime works; see [Roadmap](#roadmap).
 
-Every agent framework lets you call tools. Most let you plug in RAG. But **none treat reliability as a structural property of the framework itself** — they bolt it on after.
-
-petfishFramework is built around three insights validated by academic research:
-
-1. **Reliability is architectural** — the same model scores 30+ points differently depending on the agent scaffold (GAIA benchmark). Framework quality IS product quality.
-2. **MCP is the standard** — Model Context Protocol is now universal. We make it the canonical tool contract, not an adapter.
-3. **Reasoning strategies are pluggable** — ReAct is just one option. Tree-of-Thoughts (18× improvement on some tasks), LATS (MCTS for agents), and LLM+P (symbolic planning) are first-class.
-
-## Comparison
-
-| Dimension | LangChain | CrewAI | **petfishFramework** |
-|---|---|---|---|
-| Reliability metric | Manual (LangSmith) | None | **Pass^k built-in (freeze+perturb)** |
-| Reasoning strategies | ReAct only | ReAct only | **ReAct + LATS + LLM+P** |
-| MCP support | Adapter | Adapter | **Canonical tool contract + real stdio** |
-| Cost control | Logging | None | **Hard budget enforcement** |
-| Multi-agent | Manual chains | Role-based crews | **Agent-as-Tool (through chokepoint)** |
-| Permissions | None | None | **SARC model + 6 DecisionEffects** |
-| Replay/audit | External | None | **Event-sourced (AUDIT/RESUME/RERUN)** |
-| Async | Partial | No | **Dual interface (sync + async)** |
-| Streaming | Yes | No | **Yes** |
-| License | MIT | MIT | **MIT** |
-
-## Quick Start
+## Quick Start (Zero Cost — No API Key)
 
 ```bash
 pip install petfishframework
@@ -40,78 +17,138 @@ pip install petfishframework
 ```python
 from petfishframework import Agent, ReAct
 from petfishframework.tools.calculator import Calculator
+from petfishframework.models.fake import FakeModel
+
+# FakeModel — runs without any API key, perfect for testing
+model = FakeModel.script_tool_then_answer(
+    tool_name="calculator",
+    tool_args={"expression": "17 * 23"},
+    final_answer="391",
+)
 
 agent = Agent(
-    model="openai:gpt-4o",  # or OpenAIModel(model="gpt-4o")
+    model=model,
     reasoning=ReAct(),
     tools=(Calculator(),),
 )
 
 result = agent.run("What is 17 * 23?")
-print(result.answer)        # "391"
+print(result.answer)  # "391"
 print(result.usage.total_tokens)
+print(len(result.trajectory.steps), "steps")
 ```
+
+## Quick Start (Real LLM)
+
+```bash
+pip install "petfishframework[openai]"
+```
+
+```python
+from petfishframework import Agent, ReAct
+from petfishframework.tools.calculator import Calculator
+from petfishframework.models.openai import OpenAIModel
+
+agent = Agent(
+    model=OpenAIModel(model="gpt-4o-mini"),  # or model="openai:gpt-4o-mini"
+    reasoning=ReAct(),
+    tools=(Calculator(),),
+)
+
+result = agent.run("What is 17 * 23?")
+print(result.answer)  # "391"
+```
+
+Set `OPENAI_API_KEY` in `.env` or environment. Works with OpenAI-compatible APIs (SiliconFlow, etc.) via `OPENAI_BASE_URL`.
+
+## Budget Control (Runtime Hard Limits)
+
+```python
+from petfishframework import Budget
+
+# Budget is execution-scoped — pass to run() or session(), not Agent()
+result = agent.run(
+    "Complex calculation task",
+    budget=Budget(max_tokens=1000, max_tool_calls=5, max_steps=10),
+)
+# Exceeding any limit raises BudgetExceeded
+```
+
+## Permission Gate (Runtime Access Control)
+
+```python
+from petfishframework.permissions.model import (
+    Decision, DecisionEffect, PermissionPolicy,
+)
+
+class DenyExpensiveTools:
+    """Custom policy: deny tools tagged 'expensive'."""
+    def evaluate(self, subject, action, resource, context):
+        if "expensive" in resource.tags:
+            return Decision(effect=DecisionEffect.DENY, reason="too expensive")
+        return Decision(effect=DecisionEffect.ALLOW)
+
+agent = Agent(
+    model=model,
+    reasoning=ReAct(),
+    tools=(Calculator(),),
+    permission_policy=DenyExpensiveTools(),
+)
+# Tool calls pass through the Environment chokepoint — denied calls never execute
+```
+
+## Replay & Audit (Event-Sourced Sessions)
+
+```python
+session = agent.session("What is 17 * 23?")
+result = session.run()
+
+# Every step is recorded — model calls, tool calls, permission decisions
+for event in session.replay():
+    print(f"{event.type}: {event.data}")
+
+# Events come from session.replay(), not from Result
+# Result has: answer, usage, trajectory
+# Session has: events, replay(), checkpoint()
+```
+
+## Core Concepts
+
+| Concept | Role |
+|---|---|
+| **Agent** | Immutable recipe (model + reasoning + tools) |
+| **Session** | Event-sourced execution (auditable, replayable) |
+| **Environment** | Single chokepoint (all calls audited, budget-metered, permission-gated) |
+| **Budget** | Hard execution limits (tokens, cost, steps, tool calls) |
+| **Permission** | SARC access control with 6 DecisionEffects |
+| **Replay** | AUDIT (event log), RESUME (checkpoint), RERUN (fresh) |
+| **Pass^k** | Reliability metric (k repetitions + perturbation suite) |
 
 ## Features
 
-### Reasoning Strategies
-- **ReAct** — think-act-observe loop (default, simplest)
-- **LATS** — Language Agent Tree Search (MCTS, +90% vs ReAct on HotpotQA)
-- **LLM+P** — LLM + symbolic planner (optimal plans for PDDL domains)
-
-### Reliability (Flagship)
-- **Pass^k** — run k times, measure consistency. Freeze+perturb methodology.
-- **Event-sourced Sessions** — every model/tool/retrieval call recorded. AUDIT replay, RESUME from checkpoint, RERUN fresh.
-- **Budget enforcement** — hard limits on tokens, cost, steps, tool calls.
-- **Retry + timeout** — transient failure recovery built-in.
-
-### Tools & MCP
-- **MCP-first** — single Tool interface that IS MCP-shaped. Native tools and MCP servers use the same contract.
-- **Real stdio transport** — `connect_stdio()` spawns real MCP server subprocesses.
-- **AgentAsTool** — wrap any Agent as a Tool for multi-agent delegation.
-
-### Retrieval
-- **CRAG** (Corrective RAG) — retrieval quality evaluation + web search fallback
-- **Adaptive-RAG** — query complexity classification → route {no-retrieval/single/multi-step}
-
-### Security
-- **SARC model** — Subject/Action/Resource/Context access control
-- **6 DecisionEffects** — ALLOW, DENY, MASK, PARTIAL_ALLOW, REQUIRE_APPROVAL, DEGRADE
-- **Two-gate model** — visibility gate (CapabilityProjection) + invocation gate (authorize→execute→sanitize)
-- **CredentialBroker** — agents never hold real credentials
-
-### Model Adapters
-- OpenAI (GPT-4o, GPT-4o-mini, ...)
-- Anthropic (Claude Sonnet, Opus, ...)
-- FakeModel (deterministic testing)
-
-## Architecture
-
-```
-Agent (recipe) → Session (event-sourced process) → Environment (chokepoint)
-                                                         ↕
-                                              ReasoningStrategy
-                                              (ReAct/LATS/LLM+P)
-```
-
-- **Agent** = immutable recipe (model + reasoning + tools + retriever)
-- **Session** = event-sourced execution (checkpointable, replayable, auditable)
-- **Environment** = single capability chokepoint (all calls audited, budget-metered, permission-gated)
-
-See [docs/architecture.md](https://github.com/kylecui/petfishFramework/blob/master/docs/architecture.md) for full design.
-
-## Benchmark
-
-> ⏳ Pending validation — see [docs/validation-roadmap.md](https://github.com/kylecui/petfishFramework/blob/master/docs/validation-roadmap.md)
-
-Pass^k comparison (petfishFramework vs raw API) will be documented here after real-model benchmark runs.
+- **3 reasoning strategies**: ReAct, LATS (MCTS search), LLM+P (symbolic planning)
+- **3 model adapters**: OpenAI, Anthropic, FakeModel (deterministic testing)
+- **3 routing axes**: ToolRegistry (auto tool selection), Adaptive-RAG (retrieval), ReasoningStrategy
+- **MCP client**: real stdio transport, tool discovery from external MCP servers
+- **Multi-agent**: AgentAsTool (supervisor delegates to specialist agents)
+- **Structured output**: JSON → dataclass (zero regex scoring)
+- **Conversation memory**: cross-session recall via ConversationStore
+- **Async + streaming**: dual sync/async interface
 
 ## Documentation
 
-- [Architecture](https://github.com/kylecui/petfishFramework/blob/master/docs/architecture.md) — 5 core decisions, module structure
-- [API Reference](https://github.com/kylecui/petfishFramework/blob/master/docs/api.md) — 989-line definitive reference (187 tests validate every API)
-- [Validation Roadmap](https://github.com/kylecui/petfishFramework/blob/master/docs/validation-roadmap.md) — from paper-validated to real-validated
-- [Examples](https://github.com/kylecui/petfishFramework/tree/master/examples/) — 3 runnable scripts (quickstart, tools+retrieval, multi-agent)
+- [Usage Guide](https://github.com/kylecui/petfishFramework/blob/master/docs/usage-guide.md) — full lifecycle, 18 sections
+- [API Reference](https://github.com/kylecui/petfishFramework/blob/master/docs/api.md) — 989-line definitive reference
+- [Architecture](https://github.com/kylecui/petfishFramework/blob/master/docs/architecture.md) — 5 core decisions
+- [Benchmark Results](https://github.com/kylecui/petfishFramework/blob/master/docs/benchmark-results.md) — 3-tier strategy
+- [Examples](https://github.com/kylecui/petfishFramework/tree/master/examples/) — quickstart, tools+retrieval, multi-agent
+
+## Roadmap
+
+- **v0.1.x** (current): Core runtime works, quickstart verified ✅
+- **v0.2.x**: Enterprise agent examples, structured audit reports
+- **v0.3.x**: Policy engine (YAML), MASK enforcement, credential broker
+- **v0.4.x**: Production hardening, deployment guides
 
 ## Development
 
@@ -119,9 +156,11 @@ Pass^k comparison (petfishFramework vs raw API) will be documented here after re
 git clone https://github.com/kylecui/petfishFramework.git
 cd petfishFramework
 uv sync --all-extras
-uv run pytest              # 166 tests
-uv run ruff check src/ tests/  # lint clean
+uv run pytest              # 187 tests
+uv run ruff check src/ tests/
 ```
+
+See [CONTRIBUTING.md](https://github.com/kylecui/petfishFramework/blob/master/CONTRIBUTING.md) for details.
 
 ## License
 

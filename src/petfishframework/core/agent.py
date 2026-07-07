@@ -26,7 +26,7 @@ class Agent:
     process (decision 1).
     """
 
-    model: ModelAdapter
+    model: ModelAdapter | str
     reasoning: ReasoningStrategy = field(default_factory=lambda: _default_reasoning())
     tools: tuple[Tool, ...] = ()
     retriever: Retriever | None = None
@@ -34,6 +34,11 @@ class Agent:
         default_factory=lambda: _default_policy()
     )
     tool_registry: Any = None  # ToolRegistry | None — lazy typed to avoid import cycle
+
+    def __post_init__(self) -> None:
+        """Resolve model string shortcuts (e.g. 'openai:gpt-4o')."""
+        if isinstance(self.model, str):
+            object.__setattr__(self, "model", _resolve_model(self.model))
 
     def run(
         self,
@@ -205,3 +210,40 @@ def _default_reasoning() -> ReasoningStrategy:
 
 def _default_policy() -> PermissionPolicy:
     return DefaultAllowPolicy()
+
+
+def _resolve_model(model: Any) -> ModelAdapter:
+    """Resolve model string shortcuts like 'openai:gpt-4o' to ModelAdapter."""
+    if not isinstance(model, str):
+        return model
+
+    provider, _, name = model.partition(":")
+    if not name:
+        raise ValueError(
+            f"Invalid model string '{model}'. "
+            "Expected format: 'provider:model_name' (e.g. 'openai:gpt-4o')."
+        )
+
+    if provider == "openai":
+        try:
+            from petfishframework.models.openai import OpenAIModel
+        except ImportError as exc:
+            raise ImportError(
+                "OpenAI model adapter requires the 'openai' package.\n"
+                'Install it with: pip install "petfishframework[openai]"'
+            ) from exc
+        return OpenAIModel(model=name)
+
+    if provider == "anthropic":
+        try:
+            from petfishframework.models.anthropic import AnthropicModel
+        except ImportError as exc:
+            raise ImportError(
+                "Anthropic model adapter requires the 'anthropic' package.\n"
+                'Install it with: pip install "petfishframework[anthropic]"'
+            ) from exc
+        return AnthropicModel(model=name)
+
+    raise ValueError(
+        f"Unknown provider '{provider}'. Supported: 'openai', 'anthropic'."
+    )
