@@ -4,7 +4,7 @@
 
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://github.com/kylecui/petfishFramework/blob/master/LICENSE)
-[![Tests: 234](https://img.shields.io/badge/tests-213-brightgreen.svg)](https://github.com/kylecui/petfishFramework/tree/master/tests/)
+[![Tests: 234](https://img.shields.io/badge/tests-234-brightgreen.svg)](https://github.com/kylecui/petfishFramework/tree/master/tests/)
 
 **Status: Alpha** — API may change. Core runtime works; see [Roadmap](#roadmap).
 
@@ -181,7 +181,9 @@ print(result.summary())
 
 ## Enterprise PoC
 
-See `examples/05_enterprise_expense.py` (coming in v0.2.0 release) and `tests/test_enterprise_demo.py` for a complete enterprise expense approval scenario demonstrating all 6 DecisionEffects.
+See `examples/05_enterprise_expense.py` and `tests/test_enterprise_demo.py` for a complete enterprise expense approval scenario demonstrating all 6 DecisionEffects.
+
+Run: `python examples/05_enterprise_expense.py`
 
 ## Roadmap
 

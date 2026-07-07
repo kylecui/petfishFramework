@@ -1,6 +1,6 @@
 # petfishFramework API Reference
 
-This document is the authoritative reference for the public API of `petfishFramework` v0.1.9. Every signature, field, and example below is derived from the source code and from the tests that exercise it.
+This document is the authoritative reference for the public API of `petfishFramework` v0.2.2. Every signature, field, and example below is derived from the source code and from the tests that exercise it.
 
 ## 1. Overview
 
@@ -327,7 +327,7 @@ class Session:
 
 `run` builds the `RuntimeEnvironment` and `RunContext`, emits `session.start`, executes the strategy, attaches accumulated `Usage` and `session_id`, and emits `session.end`.
 
-`replay` accepts an optional `ReplayMode` argument. In v0.1.9 all modes return the stored event log; full deterministic replay via `RecordingEnvironment` and `ReplayEnvironment` is available in `petfishframework.reliability.replay`.
+`replay` accepts an optional `ReplayMode` argument. In v0.2.2 all modes return the stored event log; full deterministic replay via `RecordingEnvironment` and `ReplayEnvironment` is available in `petfishframework.reliability.replay`.
 
 ```python
 agent = Agent(model=FakeModel(responses=(ModelResponse(content="ok"),)))
