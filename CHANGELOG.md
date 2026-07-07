@@ -2,6 +2,48 @@
 
 All notable changes to petfishFramework will be documented in this file.
 
+## [0.2.0] — 2026-07-08
+
+### v0.2.0 Enterprise PoC Release
+
+Enterprise Expense Approval Agent demo:
+- 6 TDD tests covering ALL 6 DecisionEffects in enterprise scenario
+- PolicyChecker, ApprovePayment (side_effect=True), DryRunPayment tools
+- ExpensePolicy using tool metadata + amount thresholds
+- Zero-cost (FakeModel driven, no API key needed)
+
+AuditReport v2 enhancement:
+- Budget section (input/output/total tokens, cost, elapsed)
+- Event count by type table
+- Permission summary by effect table
+- Masked fields summary section
+- Errors section for failed tool calls
+- 5 new TDD tests
+
+Supply chain:
+- SECURITY.md (vulnerability reporting policy)
+- CI badge in README (Python 3.10-3.12, ruff + pytest)
+- Trusted Publishing: deferred (requires PyPI OIDC setup)
+
+### v0.1.6-v0.1.9 (merged into 0.2.0 baseline)
+
+Permission semantics:
+- DEGRADE: fallback tool switching + fail-closed when no fallback
+- MASK: input mask (pre-execution) + output mask (post) + event mask (audit log) + nested dot-path
+- PARTIAL_ALLOW: pre-execution arg filtering
+- REQUIRE_APPROVAL: pre-execution block
+- All 6 DecisionEffects enforced with side-effect verification tests
+
+Tool metadata:
+- BaseTool: side_effect, idempotent, external_egress, requires_credentials
+- SafeByDefaultPolicy example using metadata
+
+Audit infrastructure:
+- AuditReport with to_markdown() and to_json()
+- audit_report_from_session(session, result=None)
+- Event duration_ms + error capture
+- Granular event types: tool.blocked/approval_required/called/masked/partial_allowed/degraded/degrade_failed
+
 ## [0.1.0a1] — 2026-07-06 (Alpha)
 
 ### Added — Core Framework

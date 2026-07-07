@@ -4,7 +4,7 @@
 
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://github.com/kylecui/petfishFramework/blob/master/LICENSE)
-[![Tests: 229](https://img.shields.io/badge/tests-213-brightgreen.svg)](https://github.com/kylecui/petfishFramework/tree/master/tests/)
+[![Tests: 234](https://img.shields.io/badge/tests-213-brightgreen.svg)](https://github.com/kylecui/petfishFramework/tree/master/tests/)
 
 **Status: Alpha** — API may change. Core runtime works; see [Roadmap](#roadmap).
 
@@ -179,6 +179,10 @@ print(result.summary())
 - [Benchmark Results](https://github.com/kylecui/petfishFramework/blob/master/docs/benchmark-results.md) — 3-tier strategy
 - [Examples](https://github.com/kylecui/petfishFramework/tree/master/examples/) — quickstart, tools+retrieval, multi-agent
 
+## Enterprise PoC
+
+See `examples/05_enterprise_expense.py` (coming in v0.2.0 release) and `tests/test_enterprise_demo.py` for a complete enterprise expense approval scenario demonstrating all 6 DecisionEffects.
+
 ## Roadmap
 
 - **v0.1.x** (current): Core runtime, permission semantics, quickstart verified ✅
@@ -213,7 +217,7 @@ petfishFramework is **Alpha**. API may change before v1.0.
 git clone https://github.com/kylecui/petfishFramework.git
 cd petfishFramework
 uv sync --all-extras
-uv run pytest              # 229 tests
+uv run pytest              # 234 tests
 uv run ruff check src/ tests/
 ```
 

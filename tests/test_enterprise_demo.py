@@ -329,5 +329,5 @@ def test_audit_report_generated() -> None:
     report = audit_report_from_session(session)
     md = report.to_markdown()
     assert "Session Audit Report" in md
-    assert "Tool Calls" in md
+    assert "Timeline" in md
     assert report.result is not None
