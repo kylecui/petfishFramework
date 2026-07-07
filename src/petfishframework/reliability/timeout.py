@@ -8,6 +8,7 @@ modifying callers' interfaces.
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import TimeoutError as FuturesTimeoutError
 from dataclasses import dataclass
 from typing import Callable, ParamSpec, TypeVar
 
@@ -48,7 +49,7 @@ def with_timeout(fn: Callable[P, T], timeout_s: float) -> Callable[P, T]:
             future = executor.submit(fn, *args, **kwargs)
             try:
                 return future.result(timeout=timeout_s)
-            except TimeoutError as exc:
+            except FuturesTimeoutError as exc:
                 operation = getattr(fn, "__name__", repr(fn))
                 raise OperationTimedOut(operation=operation, timeout_s=timeout_s) from exc
 
