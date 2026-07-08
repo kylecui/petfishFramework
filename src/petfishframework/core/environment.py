@@ -105,7 +105,11 @@ class RuntimeEnvironment(Environment):
         return self._accountant
 
     def tools(self) -> list[Tool]:
-        """Return visible tools (skeleton: all tools; visibility gate TODO)."""
+        """Return visible tools.
+
+        Currently returns all registered tools. Visibility gating
+        (CapabilityProjection) is a planned enhancement for v0.5.
+        """
         return list(self._tools)
 
     def call(self, ref: ToolRef, args: dict) -> ToolResult:
@@ -114,7 +118,7 @@ class RuntimeEnvironment(Environment):
         Pre-execution effects (block before tool runs):
           DENY, REQUIRE_APPROVAL → tool does NOT execute
           PARTIAL_ALLOW → args filtered BEFORE execution
-          DEGRADE → logged (tool switching is future work)
+          DEGRADE → fallback tool executed instead (fail-closed if no fallback)
         Post-execution effects (applied after tool runs):
           MASK → result masked AFTER execution
           ALLOW → normal execution

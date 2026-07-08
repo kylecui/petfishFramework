@@ -1,11 +1,11 @@
-"""Permissions package — SARC access control model (v0.2 — absorbed from agentShield-dev).
+"""Permissions package — SARC access control model.
 
 Do not constrain model thoughts. Constrain model behavior.
 
-The skeleton ships DecisionEffect(6) + SARC types + a DefaultAllow policy.
-The two-gate model (CapabilityProjection visibility + ToolCallMonitor invocation)
-is structurally present but defaults to allow. Concrete enforcement, CapabilityGrant,
-and CredentialBroker are TODO (see skeleton-completeness-checklist.md).
+Provides DecisionEffect(6) + SARC types + DefaultAllow/DenyByDefault policies.
+Enforcement is wired through RuntimeEnvironment — all 6 effects are enforced
+(pre-execution block, arg filtering, tool switching, masking).
+CredentialBroker and YamlPolicy provide additional governance layers.
 """
 from __future__ import annotations
 

@@ -1,6 +1,6 @@
 # petfishFramework API Reference
 
-This document is the authoritative reference for the public API of petfishFramework v0.4.2. Every signature, field, and example below is derived from the source code and from the tests that exercise it.
+This document is the authoritative reference for the public API of petfishFramework v0.4.5. Every signature, field, and example below is derived from the source code and from the tests that exercise it.
 
 ## 1. Overview
 
@@ -559,6 +559,110 @@ MCP client stdio transport is available: `connect_stdio(...)` spawns a real MCP 
 
 Discovered MCP tools are indistinguishable from native tools inside an agent.
 
+### AgentAsTool
+
+```python
+class AgentAsTool:
+    def __init__(
+        self,
+        agent: Agent,
+        name: str = "sub_agent",
+        description: str = "Delegate a task to a sub-agent",
+        risk_level: RiskLevel = RiskLevel.MEDIUM,
+        capabilities: tuple[str, ...] = (),
+    ) -> None: ...
+
+    name: str
+    description: str
+    input_schema: dict[str, Any]
+    risk_level: RiskLevel
+    capabilities: tuple[str, ...]
+
+    def execute(self, args: dict[str, Any]) -> ToolResult: ...
+```
+
+`AgentAsTool` wraps an `Agent` so that a supervisor agent can delegate work to a sub-agent as if it were a tool. The sub-agent runs through the full framework lifecycle (`Session`, `Environment`, events, budget) with its own budget, while the supervisor sees only the returned answer as a `ToolResult`.
+
+Parameters:
+
+- `agent` — the sub-agent to invoke.
+- `name` — tool name exposed to the supervisor.
+- `description` — tool description for the model.
+- `risk_level` — risk classification (default `MEDIUM`).
+- `capabilities` — capability tags.
+
+The tool accepts arguments with a single required string field `task`.
+
+```python
+from petfishframework import Agent
+from petfishframework.models.fake import FakeModel
+from petfishframework.tools.agent_tool import AgentAsTool
+from petfishframework.tools.calculator import Calculator
+
+specialist = Agent(
+    model=FakeModel.script_tool_then_answer(
+        tool_name="calculator",
+        tool_args={"expression": "17 * 23"},
+        final_answer="391",
+    ),
+    tools=(Calculator(),),
+)
+
+supervisor = Agent(
+    model=FakeModel.script_tool_then_answer(
+        tool_name="sub_agent",
+        tool_args={"task": "What is 17 * 23?"},
+        final_answer="The specialist says 391.",
+    ),
+    tools=(AgentAsTool(specialist, name="sub_agent"),),
+)
+
+result = supervisor.run("Ask the specialist to multiply 17 by 23.")
+print(result.answer)
+```
+
+### WordSorter
+
+```python
+@dataclass
+class WordSorter(BaseTool):
+    name: str = "word_sorter"
+    description: str = "Sort a list of words alphabetically. Pass the words as a space-separated string."
+    input_schema: dict = ...
+    risk_level: RiskLevel = RiskLevel.LOW
+    capabilities: tuple[str, ...] = ()
+
+    def execute(self, args: dict) -> ToolResult: ...
+```
+
+`WordSorter` is a deterministic tool for alphabetical word sorting. It accepts a space-separated string of words and returns them sorted case-insensitively. It is useful as a reference tool for tasks that LLMs typically struggle to perform consistently.
+
+```python
+from petfishframework.tools.word_sorter import WordSorter
+
+sorter = WordSorter()
+result = sorter.execute({"words": "cherry Apple banana"})
+print(result.value)  # "Apple banana cherry"
+```
+
+### serve_as_mcp
+
+```python
+def serve_as_mcp(tools: list[Tool]) -> None: ...
+```
+
+> **Planned for v0.5 — currently raises `NotImplementedError`.**
+
+`serve_as_mcp` documents the symmetrical MCP direction: just as the framework can consume external MCP tools, it will eventually be able to expose its own tools as an MCP server. The function is a stub and raises `NotImplementedError("MCP server mode is Phase 4.")` until v0.5.
+
+```python
+from petfishframework.mcp import serve_as_mcp
+from petfishframework.tools.calculator import Calculator
+
+# This will raise NotImplementedError until v0.5.
+# serve_as_mcp([Calculator()])
+```
+
 ## 9. Retrieval
 
 All retrievers implement the `Retriever` protocol. They are attached to `Agent` via `retriever=...` and accessed from strategies through `ctx.env.retrieve(query, top_k=5)`.
@@ -774,6 +878,48 @@ replay = replay_environment_from_recording(recording)
 result2 = strategy.run(RunContext(..., env=replay, ...))
 ```
 
+### RerunEnvironment and RerunResult
+
+```python
+class RerunEnvironment:
+    def __init__(self, recording: RecordingEnvironment, live_env: Environment) -> None: ...
+    def tools(self) -> list[Tool]: ...
+    def call(self, ref: ToolRef, args: dict[str, Any]) -> ToolResult: ...
+    def retrieve(self, query: str, top_k: int = 5) -> list[Snippet]: ...
+    def query_model(self, request: ModelRequest) -> ModelResponse: ...
+    def result(self) -> RerunResult: ...
+
+
+@dataclass
+class RerunResult:
+    matches: bool
+    divergences: list[str]
+```
+
+`RerunEnvironment` executes a run against a live environment while comparing every model and tool call against a previous recording. It is the implementation of `ReplayMode.RERUN`: the execution is fresh, but any deviation in call count, tool name, arguments, or result is captured as a divergence.
+
+Divergences are detected for:
+
+- model call count exceeding the recording
+- model response content or tool-call shape differing from the recording
+- tool call count, tool name, arguments, or result differing from the recording
+
+`RerunResult.matches` is `True` when no divergences were recorded. `divergences` contains human-readable descriptions of every mismatch.
+
+```python
+from petfishframework.reliability import RecordingEnvironment, RerunEnvironment
+
+# Record a live run
+recording = RecordingEnvironment(env)
+result1 = strategy.run(RunContext(..., env=recording, ...))
+
+# Fresh rerun with divergence detection against the same live env
+rerun = RerunEnvironment(recording, env)
+result2 = strategy.run(RunContext(..., env=rerun, ...))
+rerun_result = rerun.result()
+assert rerun_result.matches
+```
+
 ### Audit Report
 
 ```python
@@ -806,6 +952,201 @@ session.run()
 report = audit_report_from_session(session)
 print(report.to_markdown())
 print(report.to_json())
+```
+
+### Retry and Timeout
+
+```python
+@dataclass(frozen=True)
+class RetryPolicy:
+    max_retries: int = 3
+    initial_delay: float = 1.0
+    backoff_factor: float = 2.0
+    retryable_exceptions: tuple[type[Exception], ...] = (Exception,)
+    jitter: bool = True
+    max_delay: float = 60.0
+
+    def delay_for_attempt(self, attempt: int) -> float: ...
+
+
+class RetryableError(Exception):
+    def __init__(
+        self,
+        message: str,
+        *,
+        original: Exception,
+        attempts: int,
+        elapsed_s: float,
+    ) -> None: ...
+
+    original: Exception
+    attempts: int
+    elapsed_s: float
+
+
+def with_retry(
+    fn: Callable[[], T],
+    policy: RetryPolicy,
+    attempts_log: list[Exception] | None = None,
+) -> Callable[[], T]: ...
+
+
+def with_retry_async(
+    fn: Callable[[], Awaitable[T]],
+    policy: RetryPolicy,
+    attempts_log: list[Exception] | None = None,
+) -> Callable[[], Awaitable[T]]: ...
+
+
+@dataclass
+class RetryModelAdapter(ModelAdapter):
+    inner: ModelAdapter
+    policy: RetryPolicy = field(default_factory=RetryPolicy)
+
+    retry_count: int
+    last_error: Exception | None
+    name: str
+
+    def query(self, request: ModelRequest) -> ModelResponse: ...
+    def query_async(self, request: ModelRequest) -> Awaitable[ModelResponse]: ...
+    def reset_stats(self) -> None: ...
+
+
+def retry_model_adapter(
+    model: ModelAdapter,
+    policy: RetryPolicy | None = None,
+) -> RetryModelAdapter: ...
+```
+
+`RetryPolicy` configures exponential-backoff retry. `delay_for_attempt(0)` returns the delay before the first retry, capped by `max_delay` and optionally jittered by ±25%.
+
+`with_retry` wraps a zero-argument synchronous callable; `with_retry_async` wraps an awaitable callable. Both raise `RetryableError` when all attempts are exhausted, carrying the original exception, total attempts, and elapsed time.
+
+`RetryModelAdapter` wraps any `ModelAdapter` so that `query` and `query_async` are retried automatically. After a failed run, inspect `retry_count` and `last_error`. `retry_model_adapter(...)` is the convenience factory.
+
+```python
+from petfishframework.models.fake import FakeModel
+from petfishframework.reliability import (
+    RetryModelAdapter,
+    RetryPolicy,
+    retry_model_adapter,
+)
+
+# Wrap FakeModel with a no-jitter retry policy
+policy = RetryPolicy(max_retries=2, initial_delay=0.01, jitter=False)
+model = retry_model_adapter(FakeModel(responses=()), policy=policy)
+
+# After a run, retry_count reports how many retries occurred
+print(model.retry_count)
+print(model.last_error)
+```
+
+```python
+import asyncio
+from petfishframework.reliability import with_retry_async, RetryPolicy
+
+async def flaky() -> str:
+    if getattr(flaky, "calls", 0) < 2:
+        flaky.calls = getattr(flaky, "calls", 0) + 1
+        raise RuntimeError("transient")
+    return "ok"
+
+wrapped = with_retry_async(flaky, RetryPolicy(max_retries=3, initial_delay=0.01, jitter=False))
+result = asyncio.run(wrapped())
+```
+
+---
+
+```python
+@dataclass(frozen=True)
+class TimeoutPolicy:
+    model_call_timeout_s: float = 60.0
+    tool_call_timeout_s: float = 30.0
+    retrieval_timeout_s: float = 10.0
+
+
+class OperationTimedOut(Exception):
+    def __init__(self, operation: str, timeout_s: float) -> None: ...
+
+    operation: str
+    timeout_s: float
+
+
+def with_timeout(fn: Callable[P, T], timeout_s: float) -> Callable[P, T]: ...
+```
+
+`TimeoutPolicy` holds default timeouts for different operation categories. `with_timeout` wraps any synchronous callable and runs it in a one-worker `ThreadPoolExecutor`. If the callable does not complete within `timeout_s` seconds, it raises `OperationTimedOut` carrying the operation name and timeout value.
+
+```python
+from petfishframework.reliability import OperationTimedOut, with_timeout
+
+def slow() -> str:
+    import time
+    time.sleep(5)
+    return "done"
+
+fast = with_timeout(slow, timeout_s=0.1)
+try:
+    fast()
+except OperationTimedOut as exc:
+    print(exc.operation)  # "slow"
+    print(exc.timeout_s)    # 0.1
+```
+
+### Cost Reporting
+
+```python
+PRICING: dict[str, dict[str, float]] = {
+    "gpt-4o": {"input": 2.50, "output": 10.00},
+    "gpt-4o-mini": {"input": 0.15, "output": 0.60},
+    "claude-sonnet-4-5": {"input": 3.00, "output": 15.00},
+    "claude-opus-4": {"input": 15.00, "output": 75.00},
+    "claude-haiku-4": {"input": 0.25, "output": 1.25},
+}
+
+
+def calculate_cost_usd(model: str, input_tokens: int, output_tokens: int) -> float: ...
+
+
+@dataclass(frozen=True)
+class CostReport:
+    input_tokens: int
+    output_tokens: int
+    total_tokens: int
+    estimated_cost_usd: float
+    elapsed_s: float
+    tool_calls: int
+    model_calls: int
+
+    @classmethod
+    def from_result(cls, result: Result) -> CostReport: ...
+    @classmethod
+    def from_events(cls, events: tuple[Event, ...]) -> CostReport: ...
+    def format_text(self) -> str: ...
+```
+
+`CostReport` aggregates resource consumption from a `Result` or from an event log. `from_result` reads the accumulated `Usage`; `from_events` aggregates every `model.called` and `tool.called` event. `calculate_cost_usd` estimates spend for known model names using the built-in `PRICING` table.
+
+```python
+from petfishframework import Agent
+from petfishframework.models.fake import FakeModel
+from petfishframework.reliability import CostReport
+from petfishframework.tools.calculator import Calculator
+
+agent = Agent(model=FakeModel(responses=()), tools=(Calculator(),))
+result = agent.run("What is 2 + 3?")
+report = CostReport.from_result(result)
+print(report.format_text())
+```
+
+```python
+# Aggregate from a session event log
+from petfishframework.reliability import audit_report_from_session, CostReport
+
+session = agent.session("hello")
+session.run()
+report = CostReport.from_events(session.replay())
+print(report.model_calls, report.tool_calls)
 ```
 
 ## 11. Permissions
@@ -1134,6 +1475,99 @@ emitter.emit("user.custom", {"hello": "world"})
 assert sink.events[0].type == "user.custom"
 ```
 
+### OTelSink
+
+```python
+class OTelSink:
+    def __init__(self, tracer: Any | None = None) -> None: ...
+```
+
+`OTelSink` is an `EventEmitter` sink that creates OpenTelemetry spans for agent activity. It maps framework events to spans:
+
+- `session.start` / `session.end` → `session` span
+- `model.called` → `model.called` span with token/cost attributes
+- `tool.*` events → spans named after the tool with `event.type`, `tool_name`, `effect`, `executed`, `duration_ms`, and `reason` attributes
+- all other events → spans named after the event type
+
+Parameters:
+
+- `tracer` — optional OpenTelemetry tracer. If omitted, the sink attempts to obtain a tracer from `opentelemetry.trace`. If `opentelemetry` is not installed, the sink degrades to a no-op and emits a one-time warning.
+
+Requires: `pip install petfishframework[otel]`
+
+```python
+from petfishframework.core.events import EventEmitter
+from petfishframework.observability import OTelSink
+
+sink = OTelSink()
+emitter = EventEmitter()
+emitter.subscribe(sink)
+emitter.emit("session.start", {"session_id": "abc123", "task": "hello"})
+emitter.emit("model.called", {
+    "model": "fake",
+    "usage": {"input_tokens": 10, "output_tokens": 20},
+})
+emitter.emit("session.end", {})
+```
+
+### SIEMSink
+
+```python
+DEFAULT_REDACT_KEYS: frozenset[str] = frozenset({
+    "api_key", "secret", "password", "token", "authorization", "cookie",
+})
+
+class SIEMSink:
+    def __init__(
+        self,
+        output_path: str | None = None,
+        *,
+        redact_keys: tuple[str, ...] | None = None,
+    ) -> None: ...
+
+    @property
+    def lines(self) -> list[str]: ...
+
+    def export(self) -> str: ...
+    def close(self) -> None: ...
+```
+
+`SIEMSink` exports every event as a structured JSON-Lines record for downstream SIEM ingestion. Credentials and secrets are redacted automatically.
+
+Parameters:
+
+- `output_path` — file path for JSON-Lines output. If `None`, lines are collected in memory.
+- `redact_keys` — additional dict keys to redact beyond `DEFAULT_REDACT_KEYS`. Pass an empty tuple to disable generic key redaction; credential tokens (`_credential_token` and `ScopedToken` values) are always redacted.
+
+Redaction scope:
+
+- `_credential_token` keys and `ScopedToken` values are always redacted to a safe reference object.
+- Keys matching `redact_keys` are replaced with the literal string `"[REDACTED]"`.
+- Nested dict keys are matched recursively; lists are traversed.
+
+.. note::
+    Redaction is **key-based**, not value-pattern based. It does not scan for secret-like values such as `sk-...`, JWTs, or AWS keys. Secrets stored under generic keys like `data` or `value` will **not** be redacted. This is not a DLP (Data Loss Prevention) engine.
+
+```python
+from petfishframework.core.events import EventEmitter
+from petfishframework.observability import SIEMSink
+
+sink = SIEMSink(output_path="audit.jsonl", redact_keys=("ssn",))
+emitter = EventEmitter()
+emitter.subscribe(sink)
+emitter.emit("model.called", {
+    "session_id": "abc123",
+    "model": "fake",
+    "usage": {"input_tokens": 10, "output_tokens": 20},
+    "api_key": "sk-12345",
+    "ssn": "123-45-6789",
+})
+sink.close()
+
+# In-memory records are also available
+print(sink.export())
+```
+
 ## 13. Compiled Context
 
 Defined in `petfishframework.core.compiled`. The `Environment` compiles these objects before the strategy runs, allowing strategies to inspect their bounds rather than operating without constraints.
@@ -1344,6 +1778,64 @@ when:
 
 Unknown condition keys are fail-closed (return `False`).
 
+### PolicyRule
+
+```python
+@dataclass(frozen=True)
+class PolicyRule:
+    name: str
+    priority: int = 0
+    conditions: dict[str, Any] = field(default_factory=dict)
+    effect: DecisionEffect = DecisionEffect.ALLOW
+    reason: str = ""
+    input_mask_fields: tuple[str, ...] = ()
+    output_mask_fields: tuple[str, ...] = ()
+    event_mask_fields: tuple[str, ...] = ()
+    fallback_tool: str | None = None
+    fallback_args: dict[str, Any] | None = None
+    allowed_fields: tuple[str, ...] | None = None
+```
+
+`PolicyRule` is the atomic unit of a `YamlPolicy`. Rules are evaluated in descending `priority` order; the first fully matching rule wins. `conditions` stores the raw `when:` block from YAML, including flat dot-path keys (e.g. `action.tool_name`) and nested `any`/`all`/`not` combinators.
+
+Field details:
+
+- `name` — human-readable rule identifier.
+- `priority` — higher numbers evaluate first.
+- `conditions` — matcher dictionary from YAML.
+- `effect` / `reason` — the resulting `DecisionEffect` and explanation.
+- `input_mask_fields` / `output_mask_fields` / `event_mask_fields` — dot-paths to redact for `MASK` decisions.
+- `fallback_tool` / `fallback_args` — safe alternative for `DEGRADE` decisions.
+- `allowed_fields` — argument whitelist for `PARTIAL_ALLOW` decisions.
+
+```python
+from petfishframework.permissions.model import DecisionEffect
+from petfishframework.policies import PolicyRule
+
+rule = PolicyRule(
+    name="deny-delete",
+    priority=100,
+    conditions={"action.tool_name": "delete_file"},
+    effect=DecisionEffect.DENY,
+    reason="deletion is not allowed",
+)
+```
+
+### load_policy
+
+```python
+def load_policy(path: str) -> YamlPolicy: ...
+```
+
+`load_policy` is a convenience alias for `YamlPolicy.from_file(path)`. It loads a YAML policy from disk and returns a `YamlPolicy` instance.
+
+```python
+from petfishframework.policies import load_policy
+
+policy = load_policy("examples/policies/enterprise-expense.yaml")
+print(policy._name)
+```
+
 ### Policy schema validation (v0.3.2)
 
 ```python
@@ -1468,4 +1960,244 @@ Install the optional dependency with:
 
 ```bash
 pip install petfishframework[vault]
+```
+
+## 17. Configuration
+
+### FrameworkConfig
+
+```python
+@dataclass(frozen=True)
+class FrameworkConfig:
+    default_model: str = "gpt-4o"
+    default_temperature: float = 0.0
+    default_max_tokens: int | None = None
+    default_budget: Budget = field(default_factory=Budget)
+    openai_api_key: str | None = None
+    anthropic_api_key: str | None = None
+    retry_policy: RetryPolicy | None = None
+    timeout_s: float = 30.0
+
+    @classmethod
+    def from_env(cls) -> FrameworkConfig: ...
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> FrameworkConfig: ...
+```
+
+`FrameworkConfig` is the typed, environment-aware configuration object for petfishFramework. Defaults are conservative: deterministic agents (`temperature=0.0`), no token cap, no budget limits, and a 30-second global operation timeout.
+
+Class methods:
+
+- `from_env()` — build a config from environment variables.
+- `from_dict(data)` — build a config from a plain dict, e.g. loaded from YAML or JSON.
+
+Environment variables supported by `from_env`:
+
+| Variable | Field |
+|---|---|
+| `PETFISH_DEFAULT_MODEL` | `default_model` |
+| `PETFISH_DEFAULT_TEMPERATURE` | `default_temperature` |
+| `PETFISH_DEFAULT_MAX_TOKENS` | `default_max_tokens` |
+| `PETFISH_MAX_TOKENS` / `PETFISH_MAX_COST_USD` / `PETFISH_MAX_STEPS` / `PETFISH_MAX_TOOL_CALLS` | `default_budget` |
+| `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` | `openai_api_key` / `anthropic_api_key` |
+| `PETFISH_TIMEOUT_S` | `timeout_s` |
+| `PETFISH_RETRY_MAX_RETRIES` / `PETFISH_RETRY_INITIAL_DELAY` / `PETFISH_RETRY_BACKOFF_FACTOR` / `PETFISH_RETRY_MAX_DELAY` / `PETFISH_RETRY_JITTER` | `retry_policy` |
+
+```python
+from petfishframework import FrameworkConfig
+
+config = FrameworkConfig.from_env()
+print(config.default_model)
+print(config.default_budget)
+```
+
+```python
+config = FrameworkConfig.from_dict({
+    "default_model": "gpt-4o-mini",
+    "default_temperature": 0.5,
+    "default_budget": {"max_tokens": 1000},
+    "retry_policy": {"max_retries": 5},
+    "timeout_s": 60.0,
+})
+```
+
+## 18. Conversation Memory
+
+### ConversationStore
+
+```python
+class ConversationStore(Protocol):
+    def load(self, conversation_id: str) -> list[Message]: ...
+    def save(self, conversation_id: str, messages: list[Message]) -> None: ...
+```
+
+`ConversationStore` is the protocol for persistent, cross-session conversation history. Implementations load and save `Message` objects by `conversation_id`. Strategies can use a store to reconstruct the exact model input across multiple sessions.
+
+### InMemoryConversationStore
+
+```python
+@dataclass
+class InMemoryConversationStore:
+    def load(self, conversation_id: str) -> list[Message]: ...
+    def save(self, conversation_id: str, messages: list[Message]) -> None: ...
+    def clear(self, conversation_id: str) -> None: ...
+    def clear_all(self) -> None: ...
+```
+
+`InMemoryConversationStore` is the reference volatile implementation. `load` returns a shallow copy of the stored messages so callers can mutate safely. `clear` removes a single conversation; `clear_all` empties the store.
+
+```python
+from petfishframework.core.conversation import InMemoryConversationStore
+from petfishframework.core.types import Message, Role
+
+store = InMemoryConversationStore()
+store.save("conv-1", [
+    Message(role=Role.USER, content="Hello"),
+    Message(role=Role.ASSISTANT, content="Hi!"),
+])
+
+messages = store.load("conv-1")
+print(len(messages))  # 2
+
+store.clear("conv-1")
+print(store.load("conv-1"))  # []
+```
+
+## 19. Structured Output
+
+### StructuredResult
+
+```python
+@dataclass(frozen=True)
+class StructuredResult(Generic[T]):
+    answer: str
+    data: T | None
+    parse_error: str | None
+    session_id: str
+```
+
+`StructuredResult` carries the outcome of a structured agent run: the raw model answer, the parsed typed object (when parsing succeeds), an optional parse error message, and the originating session id.
+
+### parse_json
+
+```python
+def parse_json(content: str) -> Any: ...
+```
+
+`parse_json` extracts JSON from a model response. It tries direct JSON parsing, fenced markdown code blocks (```json ... ```), and the first embedded object or array. Raises `ValueError` when no valid JSON can be extracted.
+
+### parse_structured
+
+```python
+def parse_structured(content: str, output_type: type[T]) -> T: ...
+```
+
+`parse_structured` parses JSON from content and instantiates `output_type`, which must be a dataclass. Unknown fields in the JSON payload are ignored. The function performs best-effort coercion of JSON primitives to the declared field types. Raises `ValueError` if JSON is invalid or instantiation fails.
+
+```python
+from dataclasses import dataclass
+from typing import Optional
+
+from petfishframework.core.structured import parse_json, parse_structured
+
+@dataclass
+class Answer:
+    value: int
+    unit: Optional[str] = None
+
+content = '''The answer is:
+```json
+{"value": 391, "unit": "meters"}
+```
+'''
+
+raw = parse_json(content)
+print(raw)  # {"value": 391, "unit": "meters"}
+
+answer = parse_structured(content, Answer)
+print(answer.value)  # 391
+print(answer.unit)   # "meters"
+```
+
+## 20. Model Adapters
+
+### AnthropicModel
+
+```python
+class AnthropicModel(ModelAdapter):
+    def __init__(
+        self,
+        model: str = "claude-sonnet-4-5-20250514",
+        api_key: str | None = None,
+        base_url: str | None = None,
+        **kwargs: Any,
+    ) -> None: ...
+
+    def query(self, request: ModelRequest) -> ModelResponse: ...
+```
+
+`AnthropicModel` adapts the framework's `ModelAdapter` protocol to Anthropic's Messages API. The `anthropic` package is imported lazily inside `__init__` so the framework core remains free of the optional dependency at import time.
+
+Parameters:
+
+- `model` — Anthropic model name (default `claude-sonnet-4-5-20250514`).
+- `api_key` — Anthropic API key. If omitted, `ANTHROPIC_API_KEY` is read from the environment.
+- `base_url` — optional custom base URL.
+- `**kwargs` — forwarded to `anthropic.Anthropic`.
+
+Raises:
+
+- `ImportError` — if the `anthropic` package is not installed.
+- `ValueError` — if no API key is available.
+
+```python
+from petfishframework.models.anthropic import AnthropicModel
+
+# Requires ANTHROPIC_API_KEY or the api_key argument.
+# model = AnthropicModel(model="claude-sonnet-4-5-20250514")
+```
+
+### AsyncFakeModel
+
+```python
+@dataclass
+class AsyncFakeModel(ModelAdapter):
+    _inner: FakeModel = field(default_factory=FakeModel)
+    name: str = "async_fake"
+
+    def query(self, request: ModelRequest) -> ModelResponse: ...
+    async def query_async(self, request: ModelRequest) -> ModelResponse: ...
+    def query_stream(self, request: ModelRequest) -> Iterator[str]: ...
+
+    @property
+    def call_count(self) -> int: ...
+    @property
+    def requests(self) -> tuple[ModelRequest, ...]: ...
+
+    @classmethod
+    def script_tool_then_answer(
+        cls,
+        tool_name: str,
+        tool_args: dict[str, Any],
+        final_answer: str,
+    ) -> "AsyncFakeModel": ...
+```
+
+`AsyncFakeModel` wraps `FakeModel` for deterministic async tests. It reuses all `FakeModel` scripting utilities and adds an async `query_async` coroutine that delegates to the inner model. It is detected as async by `asyncio.iscoroutinefunction()`, so `RuntimeEnvironment.query_model_async()` will await it.
+
+```python
+import asyncio
+from petfishframework.models.fake import AsyncFakeModel
+from petfishframework.core.types import ModelRequest
+
+async def main():
+    model = AsyncFakeModel.script_tool_then_answer(
+        tool_name="calculator",
+        tool_args={"expression": "2 + 3"},
+        final_answer="5",
+    )
+    response = await model.query_async(ModelRequest(messages=()))
+    print(response.content)
+
+asyncio.run(main())
 ```

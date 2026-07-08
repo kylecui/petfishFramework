@@ -2,6 +2,33 @@
 
 All notable changes to petfishFramework will be documented in this file.
 
+## [0.4.5] — 2026-07-08
+
+### v0.5 Readiness: API Documentation + Technical Debt Cleanup
+
+#### API Reference Overhaul (28 APIs documented)
+- `docs/api.md` expanded from 1471 to 2203 lines (+50%)
+- All 28 previously-undocumented public APIs now have full signatures, parameters, and examples:
+  - **Observability**: OTelSink, SIEMSink (with redact_keys boundary note)
+  - **Reliability**: RetryPolicy, with_retry, with_retry_async, RetryableError, RetryModelAdapter, retry_model_adapter, TimeoutPolicy, with_timeout, OperationTimedOut, RerunEnvironment, RerunResult, CostReport
+  - **Configuration**: FrameworkConfig (from_env, from_dict)
+  - **Conversation Memory**: ConversationStore, InMemoryConversationStore
+  - **Structured Output**: StructuredResult, parse_json, parse_structured
+  - **Tools**: AgentAsTool, WordSorter
+  - **Models**: AnthropicModel, AsyncFakeModel
+  - **Policies**: PolicyRule, load_policy
+  - **MCP**: serve_as_mcp (marked as v0.5 stub)
+
+#### API Stability Policy
+- New `docs/api-stability.md` classifies all public APIs into Stable / Experimental / Internal tiers
+- Documents deprecation process and v1.0 freeze criteria
+
+#### Code Cleanup (stale markers removed)
+- `permissions/__init__.py`: docstring updated — CredentialBroker is implemented, not TODO
+- `permissions/model.py`: DefaultAllowPolicy comment clarified (allow-all by design, not a skeleton TODO)
+- `core/environment.py`: DEGRADE docstring fixed — tool switching IS implemented (was incorrectly marked "future work"); visibility gate clarified as v0.5 planned
+- `docs/skeleton-completeness-checklist.md`: comprehensively updated to reflect v0.4.5 state (RESUME/RERUN, Pass^k, CredentialBroker, OTel/SIEM, retry/timeout all marked ✅)
+
 ## [0.4.2] — 2026-07-08
 
 ### CI & Deployment Hardening

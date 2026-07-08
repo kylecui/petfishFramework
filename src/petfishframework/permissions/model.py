@@ -113,7 +113,7 @@ class DefaultAllowPolicy:
     """
 
     def evaluate(self, subject: Subject, action: Action, resource: Resource, context: AccessContext) -> Decision:
-        # Skeleton: allow all. TODO: wire SARC policy engine + two-gate model.
+        # Allow-all by design. Use DenyByDefaultPolicy or YamlPolicy for enforcement.
         return Decision(effect=DecisionEffect.ALLOW, reason="default_allow_policy")
 
 
