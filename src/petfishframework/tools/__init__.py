@@ -10,6 +10,7 @@ from .calculator import Calculator
 from .idempotency import IdempotencyStore
 from .metadata_policy import ToolMetadataPolicy
 from .rate_limiter import RateLimiter, RateLimitPolicy
+from .sandbox import SandboxExecutor
 from .schema_validator import SchemaViolationError, ToolSchemaValidator
 from .word_sorter import WordSorter
 
@@ -20,6 +21,7 @@ __all__ = [
     "IdempotencyStore",
     "RateLimitPolicy",
     "RateLimiter",
+    "SandboxExecutor",
     "SchemaViolationError",
     "ToolMetadataPolicy",
     "ToolSchemaValidator",

@@ -1,17 +1,16 @@
-"""LATS (Language Agent Tree Search) reasoning strategy — V2 simplified.
+"""LATS (Language Agent Tree Search) reasoning strategy — full MCTS.
 
-This is a deliberately simplified LATS that validates the ReasoningStrategy
-interface fit (decision 3 / open question 2). It generates candidate next
-actions, scores them with the model, selects the best, executes it, and
-repeats. Full MCTS with UCB/rollout/backpropagation is Phase 4.
+Implements UCB1 selection, expansion, rollout simulation via model scoring,
+and backpropagation over a tree of candidate actions.
 
 All capability access flows through ctx.env; the Environment interface is
 completely unchanged.
 """
 from __future__ import annotations
 
+import math
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from petfishframework.core.contracts import ReasoningStrategy
 from petfishframework.core.types import (
@@ -27,23 +26,61 @@ from petfishframework.core.types import (
     Usage,
 )
 
+_DEFAULT_EXPLORATION_CONSTANT: float = 1.414
+
+
+@dataclass
+class _MCTSNode:
+    """A node in the MCTS search tree."""
+
+    state: str
+    parent: _MCTSNode | None
+    action: ToolCall | None
+    children: list[_MCTSNode] = field(default_factory=list)
+    visits: int = 0
+    total_value: float = 0.0
+    untried_actions: list[ToolCall] = field(default_factory=list)
+    exploration_constant: float = _DEFAULT_EXPLORATION_CONSTANT
+
+    @property
+    def ucb1(self) -> float:
+        """UCB1 score: exploitation + exploration."""
+        if self.visits == 0:
+            return float("inf")
+        if self.parent is None or self.parent.visits == 0:
+            return float("inf")
+        exploit = self.total_value / self.visits
+        explore = self.exploration_constant * math.sqrt(
+            math.log(self.parent.visits) / self.visits
+        )
+        return exploit + explore
+
+    @property
+    def average_value(self) -> float:
+        """Mean value accumulated at this node."""
+        return self.total_value / self.visits if self.visits else 0.0
+
 
 @dataclass
 class LATS(ReasoningStrategy):
-    """Simplified Language Agent Tree Search over the Environment.
+    """Language Agent Tree Search over the Environment using MCTS.
 
     Fields:
         breadth: Number of candidate next actions generated per expansion.
         max_depth: Maximum search depth (tool-execution steps).
+        n_simulations: Number of MCTS simulations per decision step.
+        exploration_constant: UCB exploration weight (C).
         name: Strategy identifier.
     """
 
     breadth: int = 3
     max_depth: int = 5
+    n_simulations: int = 4
+    exploration_constant: float = _DEFAULT_EXPLORATION_CONSTANT
     name: str = "lats"
 
     def run(self, ctx) -> Result:
-        """Run the simplified LATS loop within the provided RunContext."""
+        """Run the MCTS LATS loop within the provided RunContext."""
         tools = ctx.env.tools()
         tool_names = tuple(t.name for t in tools)
 
@@ -55,13 +92,15 @@ class LATS(ReasoningStrategy):
 
         steps: list[Step] = []
         usage = Usage()
-        max_depth = ctx.budget.max_steps if ctx.budget.max_steps is not None else self.max_depth
+        max_depth = (
+            ctx.budget.max_steps if ctx.budget.max_steps is not None else self.max_depth
+        )
 
         try:
             for depth in range(max_depth):
-                # -----------------------------------------------------------------
+                # ---------------------------------------------------------
                 # 1. Expand: generate candidate next actions.
-                # -----------------------------------------------------------------
+                # ---------------------------------------------------------
                 expand_request = ModelRequest(messages=tuple(messages), tools=tool_names)
                 expand_response = ctx.env.query_model(expand_request)
                 usage = usage.add(expand_response.usage)
@@ -85,35 +124,54 @@ class LATS(ReasoningStrategy):
                         usage=usage,
                     )
 
-                # Limit candidates to configured breadth.
                 candidates = candidates[: self.breadth]
 
-                # -----------------------------------------------------------------
-                # 2. Evaluate: score each candidate.
-                # -----------------------------------------------------------------
-                scored: list[tuple[ToolCall, float]] = []
-                for candidate in candidates:
-                    score, score_usage = self._score_candidate(
-                        ctx,
-                        messages,
-                        candidate,
-                    )
-                    usage = usage.add(score_usage)
-                    scored.append((candidate, score))
-                    ctx.events.emit(
-                        "lats.evaluate",
-                        {
-                            "depth": depth,
-                            "tool_name": candidate.name,
-                            "tool_args": candidate.arguments,
-                            "score": score,
-                        },
-                    )
+                # ---------------------------------------------------------
+                # 2. MCTS: build a search tree and choose the best action.
+                # ---------------------------------------------------------
+                root = _MCTSNode(
+                    state=_serialize_messages(messages),
+                    parent=None,
+                    action=None,
+                    children=[],
+                    untried_actions=list(candidates),
+                    exploration_constant=self.exploration_constant,
+                )
 
-                # -----------------------------------------------------------------
-                # 3. Select: highest-scoring candidate.
-                # -----------------------------------------------------------------
-                best_candidate, best_score = max(scored, key=lambda item: item[1])
+                # Pre-expand all root candidates so their values are known.
+                usage = self._expand_root(ctx, messages, root, usage, depth)
+
+                best_candidate: ToolCall
+                if not root.children:
+                    # No scorable candidates; fall back to the first candidate.
+                    best_candidate = candidates[0]
+                    best_score = 0.0
+                else:
+                    # Run MCTS simulations using UCB1 selection/backpropagation.
+                    for sim in range(self.n_simulations):
+                        selected = self._select_best_child(root)
+                        if selected is None:
+                            break
+                        self._backpropagate(selected, selected.average_value)
+                        ctx.events.emit(
+                            "lats.simulation",
+                            {
+                                "depth": depth,
+                                "simulation": sim,
+                                "tool_name": selected.action.name
+                                if selected.action
+                                else None,
+                                "value": selected.average_value,
+                            },
+                        )
+
+                    best_child = max(
+                        root.children, key=lambda child: child.average_value
+                    )
+                    assert best_child.action is not None
+                    best_candidate = best_child.action
+                    best_score = best_child.average_value
+
                 ctx.events.emit(
                     "lats.select",
                     {
@@ -124,15 +182,17 @@ class LATS(ReasoningStrategy):
                     },
                 )
 
-                # -----------------------------------------------------------------
-                # 4. Execute: run the selected action and observe.
-                # -----------------------------------------------------------------
+                # ---------------------------------------------------------
+                # 3. Execute: run the selected action and observe.
+                # ---------------------------------------------------------
                 tool_result = ctx.env.call(
                     ToolRef(name=best_candidate.name),
                     best_candidate.arguments,
                 )
                 observation = (
-                    tool_result.error if tool_result.error is not None else str(tool_result.value)
+                    tool_result.error
+                    if tool_result.error is not None
+                    else str(tool_result.value)
                 )
                 steps.append(
                     Step(
@@ -144,7 +204,6 @@ class LATS(ReasoningStrategy):
                     )
                 )
 
-                # Append selected action + observation to conversation history.
                 messages.append(
                     Message(
                         role=Role.ASSISTANT,
@@ -174,6 +233,58 @@ class LATS(ReasoningStrategy):
             trajectory=Trajectory(steps=tuple(steps)),
             usage=usage,
         )
+
+    def _expand_root(
+        self,
+        ctx,
+        messages: list[Message],
+        root: _MCTSNode,
+        usage: Usage,
+        depth: int,
+    ) -> Usage:
+        """Expand every candidate at the root and score each child."""
+        for candidate in list(root.untried_actions):
+            score, score_usage = self._score_candidate(ctx, messages, candidate)
+            usage = usage.add(score_usage)
+            child = _MCTSNode(
+                state=root.state,
+                parent=root,
+                action=candidate,
+                children=[],
+                untried_actions=[],
+                exploration_constant=self.exploration_constant,
+            )
+            child.visits = 1
+            child.total_value = score
+            root.children.append(child)
+            root.untried_actions.remove(candidate)
+            ctx.events.emit(
+                "lats.evaluate",
+                {
+                    "depth": depth,
+                    "tool_name": candidate.name,
+                    "tool_args": candidate.arguments,
+                    "score": score,
+                },
+            )
+        # Initialize root visits so child UCB1 is well-defined.
+        root.visits = max(1, len(root.children))
+        root.total_value = sum(child.total_value for child in root.children)
+        return usage
+
+    def _select_best_child(self, node: _MCTSNode) -> _MCTSNode | None:
+        """Select the child with the highest UCB1 score."""
+        if not node.children:
+            return None
+        return max(node.children, key=lambda child: child.ucb1)
+
+    def _backpropagate(self, node: _MCTSNode, value: float) -> None:
+        """Propagate a rollout value up to the root."""
+        current: _MCTSNode | None = node
+        while current is not None:
+            current.visits += 1
+            current.total_value += value
+            current = current.parent
 
     def _score_candidate(
         self,
@@ -220,3 +331,8 @@ class LATS(ReasoningStrategy):
             "When asked to rate a candidate, respond with a single number 0-10. "
             "When you have enough information, respond with plain text and no tool calls."
         )
+
+
+def _serialize_messages(messages: list[Message]) -> str:
+    """Serialize a conversation state to a stable string representation."""
+    return repr(tuple(messages))

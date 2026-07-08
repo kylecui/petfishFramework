@@ -29,13 +29,33 @@ from petfishframework.core.types import (
 class LLMPlusP(ReasoningStrategy):
     """LLM+P: translate NL to structured problem, plan symbolically, back-translate.
 
+    Supports arbitrary planners via configurable translation/parse templates.
+
     Fields:
         planner_tool: Name of the planner tool to invoke through the Environment.
+        problem_type: Domain identifier. "path_finding" keeps the original
+            hard-coded prompts and parser; any other value uses the custom
+            ``translate_template`` and ``parse_template``.
+        translate_template: Custom instructions for the translate phase when
+            ``problem_type`` is not "path_finding".
+        parse_template: Custom parse instructions appended to the translate
+            prompt when ``problem_type`` is not "path_finding".
         name: Strategy identifier.
     """
 
     planner_tool: str = "path_planner"
+    problem_type: str = "path_finding"
+    translate_template: str = (
+        "Translate the request into a structured problem definition that can be "
+        "solved by the available planner tool."
+    )
+    parse_template: str = "Return only a JSON object with the planner arguments."
     name: str = "llm+p"
+
+    @staticmethod
+    def for_planner(planner_name: str, problem_type: str = "generic") -> "LLMPlusP":
+        """Create an LLM+P strategy configured for a specific planner."""
+        return LLMPlusP(planner_tool=planner_name, problem_type=problem_type)
 
     def run(self, ctx) -> Result:
         """Run the LLM+P three-phase loop within the provided RunContext."""
@@ -146,7 +166,9 @@ class LLMPlusP(ReasoningStrategy):
     def _parse_planner_input(self, content: str) -> dict[str, Any] | None:
         """Parse the model's translation into planner arguments.
 
-        Tolerates markdown JSON fences. Requires 'start', 'goal', and 'edges'.
+        Tolerates markdown JSON fences. For ``problem_type == "path_finding"``,
+        requires 'start', 'goal', and 'edges'. For custom problem types, any
+        JSON object is accepted as long as it is a dict.
         """
         text = content.strip()
         if text.startswith("```"):
@@ -162,14 +184,15 @@ class LLMPlusP(ReasoningStrategy):
         except json.JSONDecodeError:
             return None
 
-        if (
-            isinstance(data, dict)
-            and "start" in data
-            and "goal" in data
-            and "edges" in data
-        ):
-            return data
-        return None
+        if not isinstance(data, dict):
+            return None
+
+        if self.problem_type == "path_finding":
+            if "start" in data and "goal" in data and "edges" in data:
+                return data
+            return None
+
+        return data
 
     def _system_prompt(self, tools: list) -> str:
         """Build a system prompt describing available tools and the LLM+P protocol."""
@@ -184,14 +207,19 @@ class LLMPlusP(ReasoningStrategy):
             "Available tools:\n" + tool_text + "\n"
         )
 
-    @staticmethod
-    def _translate_prompt() -> str:
+    def _translate_prompt(self) -> str:
         """Prompt requesting a structured problem extraction."""
-        return (
-            "Extract a structured path-finding problem from the request. "
-            "Respond with a JSON object containing 'start', 'goal', and 'edges'. "
-            "'edges' must be a list of [from, to] string pairs."
-        )
+        if self.problem_type == "path_finding":
+            return (
+                "Extract a structured path-finding problem from the request. "
+                "Respond with a JSON object containing 'start', 'goal', and 'edges'. "
+                "'edges' must be a list of [from, to] string pairs."
+            )
+
+        prompt = self.translate_template
+        if self.parse_template:
+            prompt = f"{prompt}\n\n{self.parse_template}"
+        return prompt
 
     @staticmethod
     def _backtranslate_prompt() -> str:

@@ -7,6 +7,7 @@ the appropriate effect and constraints.
 from __future__ import annotations
 
 from .engine import YamlPolicy, load_policy
+from .hot_reload import PolicyHotReloader
 from .rule import PolicyRule
 
-__all__ = ["load_policy", "PolicyRule", "YamlPolicy"]
+__all__ = ["load_policy", "PolicyHotReloader", "PolicyRule", "YamlPolicy"]

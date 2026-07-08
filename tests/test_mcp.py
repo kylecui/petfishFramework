@@ -1,8 +1,6 @@
 """Golden + known-bad tests for the MCP leakage-isolation module."""
 from __future__ import annotations
 
-import pytest
-
 from petfishframework import Agent
 from petfishframework.core.contracts import RiskLevel, Tool
 from petfishframework.core.types import ToolResult
@@ -172,9 +170,8 @@ def test_mcp_connect_stdio_is_real() -> None:
     assert callable(connect_stdio)
 
 
-def test_mcp_serve_as_mcp_is_stub() -> None:
-    """``serve_as_mcp`` documents the Phase 4 server direction."""
+def test_mcp_serve_as_mcp_functional() -> None:
+    """``serve_as_mcp`` is a functional stdio MCP server, not a stub."""
     from petfishframework.mcp import serve_as_mcp
 
-    with pytest.raises(NotImplementedError):
-        serve_as_mcp([])
+    assert callable(serve_as_mcp)

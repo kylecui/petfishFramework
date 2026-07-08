@@ -2,6 +2,52 @@
 
 All notable changes to petfishFramework will be documented in this file.
 
+## [0.5.1] — 2026-07-09
+
+### Deferred Items Completion + Reasoning Strategy Upgrades
+
+#### LATS Full MCTS
+- Upgraded from simplified greedy to full Monte Carlo Tree Search
+- UCB1 node selection, rollout simulation, backpropagation
+- `n_simulations` and `exploration_constant` parameters
+- Backward compatible (n_simulations=1 ≈ previous greedy behavior)
+
+#### LLM+P Generalization
+- Supports arbitrary planners beyond path_planner
+- `problem_type`, `translate_template`, `parse_template` fields
+- `for_planner()` factory for common configurations
+- Backward compatible (default = path_finding)
+
+#### Reflexion Strategy
+- Self-reflection wrapper around any ReasoningStrategy
+- Attempts task → reflects on failure → retries with accumulated lessons
+- `max_reflections` and `inner_strategy` parameters
+
+#### MCP Server Mode
+- `serve_as_mcp()` now functional (was NotImplementedError stub)
+- JSON-RPC over stdio: tools/list, tools/call, initialize
+- Framework tools exportable as MCP server
+
+#### Sandbox Executor
+- Subprocess isolation for high-risk tool execution
+- Temp working directory, restricted env vars, hard timeout
+- Documented as "Phase 1 — process isolation, not security boundary"
+
+#### CircuitBreaker
+- Failure-rate-based circuit breaking (CLOSED → OPEN → HALF_OPEN)
+- `failure_threshold`, `recovery_timeout_s` configuration
+- Thread-safe state management
+
+#### Policy Hot-Reload
+- `PolicyHotReloader` watches YAML policy files for changes
+- mtime-based polling (no watchdog dependency)
+- Callback registration for reload events
+- Daemon thread watcher
+
+#### Test Growth
+- v0.5.0: 352 tests → v0.5.1: 382 tests (+30)
+- All existing tests unmodified (backward compatible)
+
 ## [0.5.0] — 2026-07-08
 
 ### Tool / MCP Governance

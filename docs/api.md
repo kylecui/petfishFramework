@@ -1,6 +1,6 @@
 # petfishFramework API Reference
 
-This document is the authoritative reference for the public API of petfishFramework v0.5.0. Every signature, field, and example below is derived from the source code and from the tests that exercise it.
+This document is the authoritative reference for the public API of petfishFramework v0.5.1. Every signature, field, and example below is derived from the source code and from the tests that exercise it.
 
 ## 1. Overview
 
