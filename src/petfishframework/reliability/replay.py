@@ -177,6 +177,115 @@ class ResumableEnvironment:
 
 
 # ---------------------------------------------------------------------------
+# RerunEnvironment — fresh calls with divergence detection
+# ---------------------------------------------------------------------------
+
+@dataclass
+class RerunResult:
+    """Outcome of a deterministic RERUN against a recording."""
+
+    matches: bool
+    divergences: list[str]
+
+
+class RerunEnvironment:
+    """Replays a recording using a live environment and records divergences.
+
+    For RERUN mode: the execution is fresh from start, but each call is
+    compared against the recording. Differences in call count, tool name,
+    arguments, or result are captured as divergences.
+    """
+
+    def __init__(self, recording: RecordingEnvironment, live_env: Environment) -> None:
+        self._recording = recording
+        self._live = live_env
+        self._model_idx = 0
+        self._tool_idx = 0
+        self._divergences: list[str] = []
+
+    def tools(self) -> list[Tool]:
+        return self._live.tools()
+
+    def call(self, ref: ToolRef, args: dict[str, Any]) -> ToolResult:
+        result = self._live.call(ref, args)
+
+        if self._tool_idx >= len(self._recording.tool_calls):
+            self._record_divergence(
+                f"tool call count divergence: call #{self._tool_idx} "
+                f"({ref.name}) exceeds recording length {len(self._recording.tool_calls)}"
+            )
+        else:
+            recorded_name, recorded_args, recorded_result = self._recording.tool_calls[
+                self._tool_idx
+            ]
+            if recorded_name != ref.name:
+                self._record_divergence(
+                    f"tool name divergence at #{self._tool_idx}: "
+                    f"recorded {recorded_name!r} vs live {ref.name!r}"
+                )
+            if recorded_args != args:
+                self._record_divergence(
+                    f"tool args divergence at #{self._tool_idx}: "
+                    f"recorded {recorded_args!r} vs live {args!r}"
+                )
+            if recorded_result != result:
+                self._record_divergence(
+                    f"tool result divergence at #{self._tool_idx}: "
+                    f"recorded {recorded_result!r} vs live {result!r}"
+                )
+
+        self._tool_idx += 1
+        return result
+
+    def retrieve(self, query: str, top_k: int = 5) -> list[Snippet]:
+        return self._live.retrieve(query, top_k)
+
+    def query_model(self, request: ModelRequest) -> ModelResponse:
+        response = self._live.query_model(request)
+
+        if self._model_idx >= len(self._recording.model_responses):
+            self._record_divergence(
+                f"model call count divergence: call #{self._model_idx} "
+                f"exceeds recording length {len(self._recording.model_responses)}"
+            )
+        else:
+            recorded_response = self._recording.model_responses[self._model_idx]
+            if not self._model_responses_match(recorded_response, response):
+                self._record_divergence(
+                    f"model response divergence at #{self._model_idx}: "
+                    f"recorded {recorded_response!r} vs live {response!r}"
+                )
+
+        self._model_idx += 1
+        return response
+
+    def _model_responses_match(
+        self, recorded: ModelResponse, live: ModelResponse
+    ) -> bool:
+        """Compare model responses semantically (tool call IDs are non-semantic)."""
+        if recorded.content != live.content:
+            return False
+        if len(recorded.tool_calls) != len(live.tool_calls):
+            return False
+        for recorded_tc, live_tc in zip(recorded.tool_calls, live.tool_calls, strict=False):
+            if recorded_tc.name != live_tc.name:
+                return False
+            if recorded_tc.arguments != live_tc.arguments:
+                return False
+        return True
+
+    def _record_divergence(self, message: str) -> None:
+        self._divergences.append(message)
+
+    def result(self) -> RerunResult:
+        """Return the accumulated RERUN comparison result."""
+        return RerunResult(
+            matches=len(self._divergences) == 0,
+            divergences=list(self._divergences),
+        )
+
+
+# ---------------------------------------------------------------------------
 # Convenience: build ReplayEnvironment from a RecordingEnvironment
 # ---------------------------------------------------------------------------
 

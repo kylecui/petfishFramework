@@ -28,6 +28,8 @@ from .replay import (
     RecordingEnvironment,
     ReplayEnvironment,
     ReplayMode,
+    RerunEnvironment,
+    RerunResult,
     ResumableEnvironment,
     replay_environment_from_recording,
 )
@@ -65,6 +67,8 @@ __all__ = [
     "RecordingEnvironment",
     "ReplayEnvironment",
     "ReplayMode",
+    "RerunEnvironment",
+    "RerunResult",
     "ResumableEnvironment",
     "replay_environment_from_recording",
     # retry

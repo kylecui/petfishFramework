@@ -81,10 +81,21 @@ class RuntimeEnvironment(Environment):
     session_id: str = ""
     _accountant: CostAccountant | None = None
     credential_broker: CredentialBroker | None = None
+    _model_calls: int = 0
 
     def __post_init__(self) -> None:
         if self._accountant is None:
             self._accountant = CostAccountant()
+
+    @property
+    def model_call_count(self) -> int:
+        """Number of model queries executed in this run."""
+        return self._model_calls
+
+    @property
+    def tool_call_count(self) -> int:
+        """Number of tool calls executed in this run."""
+        return self._costs._tool_calls
 
     @property
     def _costs(self) -> CostAccountant:
@@ -481,6 +492,7 @@ class RuntimeEnvironment(Environment):
 
     def _finalize_query_model(self, request: ModelRequest, response: ModelResponse) -> ModelResponse:
         """Emit model.called, accumulate usage, and enforce budget."""
+        self._model_calls += 1
         self.events.emit(
             "model.called",
             {

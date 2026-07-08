@@ -6,9 +6,11 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from petfishframework.permissions.model import PermissionPolicy
+from petfishframework.reliability.replay import RecordingEnvironment, ResumableEnvironment
 
 from .compiled import CompiledContext, EvidenceBundle, MemorySlice, OutputContract, TaskSpec
 from .contracts import (
+    Environment,
     MemoryView,
     ModelAdapter,
     ReasoningStrategy,
@@ -18,7 +20,7 @@ from .contracts import (
 )
 from .conversation import ConversationStore
 from .environment import RuntimeEnvironment
-from .events import EventEmitter
+from .events import Event, EventEmitter
 from .types import Budget, Message, Result, Role, Task, Usage
 
 
@@ -201,11 +203,43 @@ class Session:
         return self.events.events
 
     def checkpoint(self) -> None:
-        """Emit a checkpoint event capturing current state."""
+        """Emit a checkpoint event capturing current model/tool indices."""
+        env = self._env
+        model_idx = env.model_call_count if env is not None else 0
+        tool_idx = env.tool_call_count if env is not None else 0
         self.events.emit(
-            "checkpoint",
+            "session.checkpoint",
             {
                 "session_id": self.session_id,
-                "step_count": len(self.events.events),
+                "model_idx": model_idx,
+                "tool_idx": tool_idx,
             },
+        )
+
+    @classmethod
+    def resume_from(
+        cls,
+        checkpoint_events: tuple[Event, ...],
+        recording: RecordingEnvironment,
+        live_env: Environment,
+    ) -> ResumableEnvironment:
+        """Build a ResumableEnvironment from the last session.checkpoint event.
+
+        The checkpoint event carries the model/tool indices at which the
+        recorded execution should switch over to the live environment.
+        """
+        last_checkpoint: Event | None = None
+        for event in reversed(checkpoint_events):
+            if event.type == "session.checkpoint":
+                last_checkpoint = event
+                break
+        if last_checkpoint is None:
+            raise ValueError("No session.checkpoint event found in checkpoint_events")
+
+        data = last_checkpoint.data
+        return ResumableEnvironment(
+            recording=recording,
+            live_env=live_env,
+            checkpoint_model_idx=data.get("model_idx", 0),
+            checkpoint_tool_idx=data.get("tool_idx", 0),
         )
