@@ -2,6 +2,39 @@
 
 All notable changes to petfishFramework will be documented in this file.
 
+## [0.3.2] — 2026-07-08
+
+### YAML Policy DSL Expansion
+- 13 new condition matchers (total 20): `amount_eq/gte/lte`, generic `field_eq` prefix, `role_count_gte`, `clearance_eq`, `tenant_id_eq`, `classification_eq`, `tags_contains`, `risk_level_eq`, `capabilities_contains`, `requires_credentials`, `session_risk_gt`, `prompt_risk_gt`
+- AND/OR/NOT combinators (`any`/`all`/`not`, nestable in `when:` blocks)
+- Policy schema validation (`policies/validator.py`): validates version, name, rules, effect values
+
+### CredentialBroker Phase 2
+- `BaseTool.credential_name` field — decouple tool name from credential name
+- `ScopedToken.max_uses` + use counting — one-time tokens (`max_uses=1`)
+- `ScopedToken.uses_remaining` property + `use()` method
+- `revoke_all_for_tool(tool_name)` — revoke tokens for a specific tool
+- `revoke_all()` — revoke everything (session-end cleanup)
+- `active_token_count` property + `list_active_tokens()`
+- Environment uses `credential_name` mapping when injecting tokens
+- Session-end credential cleanup
+
+## [0.3.1] — 2026-07-08
+
+### Credential Event Safety (P0 security fix)
+- Event log no longer stores `ScopedToken` objects — replaced with `{"credential_ref": ..., "tool_name": ..., "redacted": True}`
+- Untrusted event sinks cannot access `.get_secret()` via event introspection
+
+### Agent/Session credential_broker API
+- `Agent(credential_broker=broker)` — first-class parameter
+- `Session` passes broker to `RuntimeEnvironment`
+- `RuntimeEnvironment` field renamed `_credential_broker` → `credential_broker`
+
+### Documentation Sync
+- `docs/api.md` version updated
+- README roadmap: v0.3.x (current)
+- README: added YAML Policy Engine + CredentialBroker usage examples
+
 ## [0.3.0] — 2026-07-08
 
 ### v0.3.0 Policy Engine + Credential Broker Integration

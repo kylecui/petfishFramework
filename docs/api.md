@@ -1294,3 +1294,154 @@ decision.policy_name     # "enterprise-expense-policy"
 ```
 
 This lets audit logs trace each decision back to the policy file version that produced it.
+
+### AND/OR/NOT Combinators (v0.3.2)
+
+`when:` blocks support `any`/`all`/`not` combinators:
+
+```yaml
+when:
+  any:
+    - action.tool_name: approve_payment
+    - action.tool_name: transfer_funds
+
+when:
+  not:
+    subject.role_in: [admin]
+
+when:
+  not:
+    any:
+      - subject.role_in: [admin]
+      - subject.clearance_eq: secret
+```
+
+### Full matcher list (v0.3.2)
+
+| Key | Description | Example |
+|---|---|---|
+| `action.tool_name` | Exact tool name match | `approve_payment` |
+| `subject.role_in` | Any role in list matches | `[finance, admin]` |
+| `subject.role_not_in` | No role in list matches | `[intern]` |
+| `subject.role_count_gte` | Subject has ≥ N roles | `2` |
+| `subject.clearance_eq` | Clearance level match | `confidential` |
+| `subject.tenant_id_eq` | Tenant ID match | `acme-corp` |
+| `action.args.amount_gt` | `args["amount"] > value` | `5000` |
+| `action.args.amount_lt` | `args["amount"] < value` | `100` |
+| `action.args.amount_eq` | `args["amount"] == value` | `500` |
+| `action.args.amount_gte` | `args["amount"] >= value` | `1000` |
+| `action.args.amount_lte` | `args["amount"] <= value` | `200` |
+| `action.args.<field>_eq` | Generic field equality (prefix matcher) | `recipient_eq: alice@` |
+| `resource.classification_eq` | Resource classification match | `internal` |
+| `resource.tags_contains` | Resource has any of the listed tags | `[pii, sensitive]` |
+| `tool.side_effect` | Match tool metadata | `true` |
+| `tool.external_egress` | Match tool metadata | `true` |
+| `tool.requires_credentials` | Match tool metadata | `true` |
+| `tool.risk_level_eq` | Match risk level | `high` |
+| `tool.capabilities_contains` | Tool has any of listed capabilities | `[network, fs:write]` |
+| `context.session_risk_gt` | `context.session_risk > value` | `0.5` |
+| `context.prompt_risk_gt` | `context.prompt_risk > value` | `0.7` |
+
+Unknown condition keys are fail-closed (return `False`).
+
+### Policy schema validation (v0.3.2)
+
+```python
+from petfishframework.policies.validator import validate_policy, validate_policy_file
+
+errors = validate_policy_file("enterprise-expense.yaml")
+if errors:
+    for err in errors:
+        print(f"  - {err}")
+```
+
+Checks: version exists, name exists, rules is a list, each rule has name + valid effect, priority is integer.
+
+---
+
+## 16. Credential Broker
+
+### CredentialBroker
+
+```python
+from petfishframework.credentials import CredentialBroker
+
+broker = CredentialBroker(default_ttl_s=3600)
+broker.register_credential("github_app", os.environ["GITHUB_TOKEN"])
+broker.register_credential("db_connection", "postgres://...")
+```
+
+| Method | Description |
+|---|---|
+| `register_credential(name, secret)` | Register a real credential |
+| `issue_token(name, tool_name, ttl_s=None, max_uses=0)` | Issue a scoped, time-limited token |
+| `validate_token(token_id)` | Check if token is valid (not expired, not revoked) |
+| `revoke_token(token_id)` | Revoke a single token |
+| `revoke_all_for_tool(tool_name)` | Revoke all tokens for a specific tool (v0.3.2) |
+| `revoke_all()` | Revoke all active tokens (session-end cleanup) (v0.3.2) |
+| `cleanup_expired()` | Remove expired tokens, returns count removed |
+| `active_token_count` | Property: number of active tokens (v0.3.2) |
+| `list_active_tokens()` | Return list of active token_ids (v0.3.2) |
+
+### ScopedToken
+
+```python
+token = broker.issue_token("github_app", tool_name="github_tool", max_uses=1)
+token.token_id       # unique ID
+token.tool_name      # "github_tool"
+token.is_valid()     # True (not expired, uses remaining)
+token.get_secret()   # returns the actual secret (consumes one use if max_uses set)
+token.uses_remaining # remaining uses (v0.3.2)
+```
+
+`__repr__` and `__str__` never expose the secret:
+```python
+repr(token)  # "ScopedToken(token_id='abc...', tool_name='github_tool', ...)"
+str(token)   # "ScopedToken(abc..., tool=github_tool, valid=True)"
+```
+
+### Agent Integration
+
+```python
+agent = Agent(
+    model=model,
+    reasoning=ReAct(),
+    tools=tools,
+    credential_broker=broker,
+)
+# Tools with requires_credentials=True receive a ScopedToken in args["_credential_token"]
+```
+
+### Tool credential_name (v0.3.2)
+
+```python
+@dataclass
+class GitHubTool(BaseTool):
+    name: str = "github_create_issue"
+    requires_credentials: bool = True
+    credential_name: str = "github_app"  # maps to broker credential name
+```
+
+### Event Log Safety
+
+ScopedToken objects are **never** stored in event data. The Environment replaces them with:
+
+```python
+{"credential_ref": "token_id", "tool_name": "github_tool", "redacted": True}
+```
+
+### One-time Tokens (v0.3.2)
+
+```python
+token = broker.issue_token("secret_key", tool_name="signing_tool", max_uses=1)
+token.get_secret()  # works, uses_remaining becomes 0
+token.get_secret()  # raises ValueError("max uses exceeded")
+```
+
+### Session-End Cleanup
+
+```python
+# In Session._finalize_run():
+if session.credential_broker:
+    session.credential_broker.cleanup_expired()
+```
