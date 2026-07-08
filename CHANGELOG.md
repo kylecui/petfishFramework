@@ -2,6 +2,31 @@
 
 All notable changes to petfishFramework will be documented in this file.
 
+## [0.4.2] — 2026-07-08
+
+### CI & Deployment Hardening
+
+#### Docker Smoke Test in CI
+- New `docker-smoke` job in CI workflow: builds image and runs container
+- Catches `__main__.py` / ENTRYPOINT regressions before release
+
+#### Line Ending Normalization
+- Added `.gitattributes` with `* text=auto eol=lf`
+- All text files now use LF consistently across platforms
+
+#### SIEMSink Documentation
+- Docstring now explicitly states key-based redaction is not a DLP engine
+- Clarifies that value-pattern secrets (sk-..., JWTs) are not detected
+- Documents default redact_keys and nesting behavior
+
+#### Observability Example
+- New `examples/06_observability.py`: ListSink, ConsoleSink, SIEMSink, OTelSink demo
+- Shows correct sink attachment via `session.events.subscribe()`
+- Demonstrates custom `redact_keys` with nested field redaction
+
+#### README Fix
+- Observability example corrected: uses `session.events.subscribe()` instead of non-existent `event_sinks=` parameter
+
 ## [0.4.1] — 2026-07-08
 
 ### Review Fix Patch

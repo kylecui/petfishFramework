@@ -83,6 +83,18 @@ class SIEMSink:
     Each event becomes one JSON line with standardized fields. Credentials and
     secrets are automatically redacted. When *output_path* is provided, lines
     are appended to that file; otherwise they are collected in memory.
+
+    Redaction scope:
+        - ``_credential_token`` keys and :class:`ScopedToken` values (always)
+        - Keys matching *redact_keys* (default: ``api_key``, ``secret``,
+          ``password``, ``token``, ``authorization``, ``cookie``)
+        - Nested dict keys are matched recursively
+
+    .. note::
+        Redaction is **key-based**, not value-pattern based. It does not scan
+        for secret-like values (e.g. ``sk-...``, JWTs, AWS keys). Secrets
+        stored under generic keys like ``data`` or ``value`` will NOT be
+        redacted. This is not a DLP (Data Loss Prevention) engine.
     """
 
     def __init__(

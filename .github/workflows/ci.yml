@@ -31,3 +31,15 @@ jobs:
       - name: Run tests
         run: uv run pytest tests/ -q --tb=short
         # Integration tests are skipped automatically (no API key in CI)
+
+  docker-smoke:
+    runs-on: ubuntu-latest
+    needs: test
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build Docker image
+        run: docker build -t petfishframework .
+
+      - name: Run container smoke test
+        run: docker run --rm petfishframework

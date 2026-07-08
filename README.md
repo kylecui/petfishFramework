@@ -227,7 +227,13 @@ siem_sink = SIEMSink(output_path="audit.jsonl")
 # Credentials auto-redacted; configure additional secret fields:
 # siem_sink = SIEMSink(output_path="audit.jsonl", redact_keys=("api_key", "password"))
 
-agent = Agent(model=model, reasoning=ReAct(), tools=tools, event_sinks=(otel_sink, siem_sink))
+agent = Agent(model=model, reasoning=ReAct(), tools=tools)
+
+# Attach sinks to the session's EventEmitter
+session = agent.session("your task")
+session.events.subscribe(otel_sink)
+session.events.subscribe(siem_sink)
+result = session.run()
 ```
 
 ## Roadmap
