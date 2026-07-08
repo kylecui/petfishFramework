@@ -80,7 +80,7 @@ class RuntimeEnvironment(Environment):
     policy: PermissionPolicy
     session_id: str = ""
     _accountant: CostAccountant | None = None
-    _credential_broker: CredentialBroker | None = None
+    credential_broker: CredentialBroker | None = None
 
     def __post_init__(self) -> None:
         if self._accountant is None:
@@ -332,9 +332,9 @@ class RuntimeEnvironment(Environment):
         """
         if not getattr(tool, "requires_credentials", False):
             return
-        if self._credential_broker is None:
+        if self.credential_broker is None:
             return
-        token = self._credential_broker.issue_token(tool.name, tool_name=tool.name)
+        token = self.credential_broker.issue_token(tool.name, tool_name=tool.name)
         args["_credential_token"] = token
 
     def _prepare_tool_call(self, ref: ToolRef, args: dict) -> tuple[Tool | None, Any]:
@@ -410,6 +410,18 @@ class RuntimeEnvironment(Environment):
             "result_error": result.error if result.is_error else None,
             "duration_ms": round(duration_ms, 2),
         }
+
+        # Redact credential tokens from event data (security: no secret-bearing objects in events)
+        if isinstance(event_data.get("args"), dict):
+            args_copy = dict(event_data["args"])
+            if "_credential_token" in args_copy:
+                token = args_copy["_credential_token"]
+                args_copy["_credential_token"] = {
+                    "credential_ref": getattr(token, "token_id", "[unknown]"),
+                    "tool_name": getattr(token, "tool_name", "[unknown]"),
+                    "redacted": True,
+                }
+            event_data["args"] = args_copy
 
         # Redact sensitive fields from audit log (supports nested dot-path)
         if decision.event_mask_fields:

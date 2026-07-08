@@ -185,11 +185,39 @@ See `examples/05_enterprise_expense.py` and `tests/test_enterprise_demo.py` for 
 
 Run: `python examples/05_enterprise_expense.py`
 
+## YAML Policy Engine
+
+Configure permissions via YAML instead of Python:
+
+```python
+from petfishframework.policies import YamlPolicy
+
+policy = YamlPolicy.from_file("examples/policies/enterprise-expense.yaml")
+policy.register_tools(tools)
+
+agent = Agent(model=model, reasoning=ReAct(), tools=tools, permission_policy=policy)
+```
+
+Supported conditions: `action.tool_name`, `subject.role_in`, `subject.role_not_in`, `action.args.amount_gt/lt`, `tool.side_effect`, `tool.external_egress`.
+
+## CredentialBroker
+
+Tools never hold raw API keys — they receive scoped, time-limited tokens:
+
+```python
+from petfishframework.credentials import CredentialBroker
+
+broker = CredentialBroker()
+broker.register_credential("github_tool", os.environ["GITHUB_TOKEN"])
+
+agent = Agent(model=model, reasoning=ReAct(), tools=tools, credential_broker=broker)
+# Tools with requires_credentials=True receive a ScopedToken (repr-safe, auto-expiring)
+```
+
 ## Roadmap
 
-- **v0.2.x** (current): Core runtime, permission semantics, enterprise PoC, Trusted Publishing ✅
-- **v0.2.x**: Enterprise agent examples, structured audit reports
-- **v0.3.x**: Policy engine (YAML), credential broker ✅
+- **v0.2.x**: Core runtime, permission semantics, enterprise PoC, Trusted Publishing ✅
+- **v0.3.x** (current): YAML Policy Engine, CredentialBroker ✅
 - **v0.4.x**: Production hardening, deployment guides
 
 ## Current Limitations

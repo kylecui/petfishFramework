@@ -34,6 +34,7 @@ class Agent:
         default_factory=lambda: _default_policy()
     )
     tool_registry: Any = None  # ToolRegistry | None — lazy typed to avoid import cycle
+    credential_broker: Any = None  # CredentialBroker | None — lazy typed to avoid import cycle
 
     def __post_init__(self) -> None:
         """Resolve model string shortcuts (e.g. 'openai:gpt-4o')."""
@@ -179,6 +180,7 @@ class Agent:
             events=events,
             conversation_id=conversation_id,
             conversation_store=conversation_store,
+            credential_broker=self.credential_broker,
         )
 
     async def session_async(

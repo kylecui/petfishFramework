@@ -55,7 +55,7 @@ def _make_env(
         budget=Budget(),
         events=events if events is not None else EventEmitter(),
         policy=DefaultAllowPolicy(),
-        _credential_broker=broker,
+        credential_broker=broker,
     )
 
 

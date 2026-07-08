@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass, field
+from typing import Any
 
 from petfishframework.permissions.model import PermissionPolicy
 
@@ -41,6 +42,7 @@ class Session:
     _env: RuntimeEnvironment | None = field(default=None, repr=False)
     conversation_id: str | None = None
     conversation_store: ConversationStore | None = None
+    credential_broker: Any = None  # CredentialBroker | None
 
     def run(self) -> Result:
         """Execute the session and return a Result."""
@@ -78,6 +80,7 @@ class Session:
             events=self.events,
             policy=self.policy,
             session_id=self.session_id,
+            credential_broker=self.credential_broker,
         )
 
         conversation_history = self._load_conversation_history()
