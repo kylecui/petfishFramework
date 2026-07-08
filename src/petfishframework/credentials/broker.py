@@ -5,6 +5,7 @@ import time
 import uuid
 
 from .token import ScopedToken
+from .vault_adapter import VaultCredentialSource
 
 
 class CredentialBroker:
@@ -22,6 +23,17 @@ class CredentialBroker:
     def register_credential(self, name: str, secret: str) -> None:
         """Register a real credential. Secret is stored internally only."""
         self._credentials[name] = secret
+
+    def register_credential_from_vault(
+        self, name: str, vault_source: VaultCredentialSource, path: str
+    ) -> None:
+        """Register a credential fetched from a HashiCorp Vault source.
+
+        The secret is read from Vault once (using ``vault_source.read_secret``)
+        and stored internally just like a directly registered credential.
+        """
+        secret = vault_source.read_secret(path)
+        self.register_credential(name, secret)
 
     def issue_token(
         self,

@@ -4,7 +4,7 @@
 
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://github.com/kylecui/petfishFramework/blob/master/LICENSE)
-[![Tests: 284](https://img.shields.io/badge/tests-284-brightgreen.svg)](https://github.com/kylecui/petfishFramework/tree/master/tests/)
+[![Tests: 300](https://img.shields.io/badge/tests-300-brightgreen.svg)](https://github.com/kylecui/petfishFramework/tree/master/tests/)
 
 **Status: Alpha** — API may change. Core runtime works; see [Roadmap](#roadmap).
 
@@ -217,8 +217,8 @@ agent = Agent(model=model, reasoning=ReAct(), tools=tools, credential_broker=bro
 ## Roadmap
 
 - **v0.2.x**: Core runtime, permission semantics, enterprise PoC, Trusted Publishing ✅
-- **v0.3.x** (current): YAML Policy Engine, CredentialBroker ✅
-- **v0.4.x**: Production hardening, deployment guides
+- **v0.3.x**: YAML Policy Engine, CredentialBroker ✅
+- **v0.4.x** (current): Production hardening, deployment guides, Vault adapter, Docker, threat model ✅
 
 ## Current Limitations
 
@@ -233,8 +233,8 @@ petfishFramework is **Alpha**. API may change before v1.0.
 | PARTIAL_ALLOW | ✅ Enforced (pre-execution arg filtering) |
 | MASK | ✅ Enforced (input mask before + output mask after) |
 | DEGRADE | ✅ Enforced (fallback tool switching) |
-| Session replay | ✅ Audit replay available |
-| Deterministic rerun / resume | 📋 Planned |
+| Session replay / deterministic rerun / resume | ✅ Available |
+| OpenTelemetry + SIEM observability | ✅ Available |
 | MCP client stdio | ✅ Available |
 | MCP server mode | 📋 Planned |
 | Structured output / conversation memory | ✅ Available |
@@ -249,7 +249,7 @@ petfishFramework is **Alpha**. API may change before v1.0.
 git clone https://github.com/kylecui/petfishFramework.git
 cd petfishFramework
 uv sync --all-extras
-uv run pytest              # 284 tests
+uv run pytest              # 300 tests
 uv run ruff check src/ tests/
 ```
 

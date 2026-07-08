@@ -1,6 +1,6 @@
 # petfishFramework API Reference
 
-This document is the authoritative reference for the public API of `petfishFramework` v0.3.2. Every signature, field, and example below is derived from the source code and from the tests that exercise it.
+This document is the authoritative reference for the public API of petfishFramework v0.4.0. Every signature, field, and example below is derived from the source code and from the tests that exercise it.
 
 ## 1. Overview
 
@@ -1444,4 +1444,28 @@ token.get_secret()  # raises ValueError("max uses exceeded")
 # In Session._finalize_run():
 if session.credential_broker:
     session.credential_broker.cleanup_expired()
+```
+
+### Vault Integration (v0.4.0)
+
+```python
+from petfishframework.credentials import CredentialBroker, VaultCredentialSource
+
+broker = CredentialBroker()
+source = VaultCredentialSource(
+    vault_url="https://vault.example.com",
+    token="hvs.CAES...",
+)
+broker.register_credential_from_vault("openai", source, path="secrets/openai")
+```
+
+`VaultCredentialSource` performs a lazy import of `hvac` and raises a clear
+`ImportError` if the optional dependency is missing. The secret is read once and
+cached locally for the lifetime of the source; subsequent reads of the same
+path do not call Vault again.
+
+Install the optional dependency with:
+
+```bash
+pip install petfishframework[vault]
 ```

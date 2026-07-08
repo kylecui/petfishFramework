@@ -2,6 +2,35 @@
 
 All notable changes to petfishFramework will be documented in this file.
 
+## [0.4.0] — 2026-07-08
+
+### v0.4.0 Production Foundation
+
+#### Phase A+B: Deterministic Replay + Observability
+- Deterministic replay infrastructure (`petfishframework.reliability.replay`):
+  - `RecordingEnvironment` captures every model response, tool call, and retrieval
+  - `ReplayEnvironment` replays recorded calls for deterministic audit
+  - `ResumableEnvironment` replays prefix then switches to live execution
+  - `ReplayMode.AUDIT`, `RESUME`, `RERUN` semantics
+- OpenTelemetry sink (`OTelSink`) — creates spans for model/tool/session events
+- SIEM export (`SIEMSink`) — structured JSON audit events for downstream SIEMs
+
+#### Phase C: Vault Adapter + Deployment + Threat Model
+- `VaultCredentialSource` — reads secrets from HashiCorp Vault with lazy `hvac` import
+- `CredentialBroker.register_credential_from_vault(name, source, path)` — register
+  credentials fetched from Vault
+- Optional dependency group `vault = ["hvac>=1.0"]`
+- `Dockerfile` and `docker-compose.yml` for containerized deployment
+- `docs/deployment.md` — Docker deployment guide, environment variables, volume mounts,
+  credential-broker integration, and security notes
+- `docs/threat-model.md` — attack surface, trust boundaries, threats, mitigations,
+  and fail-closed defaults
+
+#### Documentation Sync
+- `docs/api.md` updated to v0.4.0
+- README: deterministic replay and OTel marked available, roadmap bumped to v0.4.x
+- Test count badge updated to 300
+
 ## [0.3.2] — 2026-07-08
 
 ### YAML Policy DSL Expansion
