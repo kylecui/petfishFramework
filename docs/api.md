@@ -1212,3 +1212,85 @@ Tool functions that raise internally are caught by `BaseTool` and `MCPToolWrappe
 ### Replay divergence
 
 `ReplayEnvironment` raises `RuntimeError` when a replayed strategy makes more calls than were recorded. This detects when the execution path has diverged from the original run. `ResumableEnvironment` switches to the live environment after the checkpoint; calling it beyond the checkpoint continues live execution and may produce a different answer.
+
+## 15. YAML Policy Engine
+
+Authorization rules can be loaded from YAML and evaluated through `YamlPolicy`, which implements the same `PermissionPolicy` protocol as custom Python policies.
+
+```python
+from petfishframework import YamlPolicy
+
+policy = YamlPolicy.from_file("policies/enterprise-expense.yaml")
+policy.register_tools(tools)
+
+decision = policy.evaluate(subject, action, resource, context)
+print(decision.effect, decision.reason)
+```
+
+### Loading policies
+
+```python
+from petfishframework import YamlPolicy
+
+policy = YamlPolicy.from_file("path/to/policy.yaml")
+policy = YamlPolicy.from_string(yaml_text)
+```
+
+`YamlPolicy.from_file` reads UTF-8 YAML and returns a policy instance. `register_tools(tools)` must be called if rules reference tool metadata such as `side_effect` or `external_egress`.
+
+### Policy file format
+
+```yaml
+version: "1.0"
+name: "enterprise-expense-policy"
+rules:
+  - name: deny-non-finance-approval
+    priority: 100
+    when:
+      action.tool_name: approve_payment
+      subject.role_not_in: [finance, admin]
+    effect: DENY
+    reason: "only finance/admin can approve payments"
+
+  - name: require-approval-for-side-effects
+    priority: 90
+    when:
+      tool.side_effect: true
+    effect: REQUIRE_APPROVAL
+    reason: "side-effect tool requires approval"
+
+  - name: default-allow
+    priority: 0
+    when: {}
+    effect: ALLOW
+    reason: "default allow"
+```
+
+Rules are evaluated in descending `priority` order. The first fully matching rule wins. `version` and `name` are optional metadata carried on the resulting `Decision`.
+
+### Condition matchers
+
+Each key under `when:` selects a matcher. Matchers are fail-closed: an unknown key never matches.
+
+| Condition key | Meaning | Example value |
+|---|---|---|
+| `action.tool_name` | Exact tool name match | `"approve_payment"` |
+| `subject.role_in` | Subject has any listed role | `[finance, admin]` |
+| `subject.role_not_in` | Subject has none of the listed roles | `[finance, admin]` |
+| `action.args.amount_gt` | `action.args["amount"] > value` | `5000` |
+| `action.args.amount_lt` | `action.args["amount"] < value` | `100` |
+| `tool.side_effect` | Match tool metadata flag | `true` |
+| `tool.external_egress` | Match tool metadata flag | `true` |
+
+Compound conditions use AND semantics: every key in a `when:` block must match for the rule to apply.
+
+### Policy version
+
+The `version` field in YAML is exposed on every `Decision` produced by the policy:
+
+```python
+decision.policy_version  # "1.0"
+decision.policy_name     # "enterprise-expense-policy"
+```
+
+This lets audit logs trace each decision back to the policy file version that produced it.

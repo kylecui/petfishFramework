@@ -13,12 +13,20 @@ Run: python examples/05_enterprise_expense.py
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from pathlib import Path
 
-from petfishframework import Agent, ReAct
+from petfishframework import Agent, ReAct, YamlPolicy
 from petfishframework.core.types import ToolResult
 from petfishframework.models.fake import FakeModel
 from petfishframework.observability.sinks import ListSink
-from petfishframework.permissions.model import Decision, DecisionEffect
+from petfishframework.permissions.model import (
+    AccessContext,
+    Action,
+    Decision,
+    DecisionEffect,
+    Resource,
+    Subject,
+)
 from petfishframework.reliability import audit_report_from_session
 from petfishframework.tools.base import BaseTool
 
@@ -262,6 +270,22 @@ def main() -> None:
         tools,
         "DEGRADE: $8000 → fallback to dry_run_payment",
     )
+
+    # Scenario 6: YAML Policy — load from file and evaluate
+    print(f"\n{'='*60}")
+    print("Scenario 6: YAML Policy — load from file and evaluate")
+    print(f"{'='*60}")
+
+    yaml_path = Path(__file__).parent / "policies" / "enterprise-expense.yaml"
+    yaml_policy = YamlPolicy.from_file(str(yaml_path))
+    yaml_policy.register_tools(tools)
+
+    subject = Subject(roles=("engineer",))
+    action = Action(type="call", tool_name="approve_payment", args={"amount": 300})
+    resource = Resource(type="tool")
+    context = AccessContext()
+    decision = yaml_policy.evaluate(subject, action, resource, context)
+    print(f"YAML policy decision: {decision.effect.value} — {decision.reason}")
 
     print("\n" + "=" * 60)
     print("All 6 DecisionEffects demonstrated:")

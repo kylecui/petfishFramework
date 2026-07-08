@@ -10,6 +10,7 @@ import copy
 from dataclasses import dataclass
 from typing import Any
 
+from petfishframework.credentials import CredentialBroker
 from petfishframework.permissions.model import (
     AccessContext,
     Action,
@@ -79,6 +80,7 @@ class RuntimeEnvironment(Environment):
     policy: PermissionPolicy
     session_id: str = ""
     _accountant: CostAccountant | None = None
+    _credential_broker: CredentialBroker | None = None
 
     def __post_init__(self) -> None:
         if self._accountant is None:
@@ -133,6 +135,7 @@ class RuntimeEnvironment(Environment):
                     effect, executed=False,
                 )
             fallback_args = decision.fallback_args if decision.fallback_args is not None else args
+            self._maybe_inject_credential(fallback, fallback_args)
             result = fallback.execute(fallback_args)
             self.events.emit(
                 "tool.degraded",
@@ -176,6 +179,7 @@ class RuntimeEnvironment(Environment):
         # Execute tool (ALLOW, PARTIAL_ALLOW, DEGRADE-without-fallback, MASK all execute)
         import time as _time
 
+        self._maybe_inject_credential(tool, args)
         start = _time.time()
         try:
             result = tool.execute(args)
@@ -221,6 +225,7 @@ class RuntimeEnvironment(Environment):
                     effect, executed=False,
                 )
             fallback_args = decision.fallback_args if decision.fallback_args is not None else args
+            self._maybe_inject_credential(fallback, fallback_args)
             if asyncio.iscoroutinefunction(fallback.execute):
                 result = await fallback.execute(fallback_args)
             else:
@@ -263,6 +268,7 @@ class RuntimeEnvironment(Environment):
         if effect == DecisionEffect.MASK and decision.input_mask_fields:
             args = _apply_mask_to_dict(args, decision.input_mask_fields)
 
+        self._maybe_inject_credential(tool, args)
         if asyncio.iscoroutinefunction(tool.execute):
             result = await tool.execute(args)
         else:
@@ -315,6 +321,21 @@ class RuntimeEnvironment(Environment):
             if t.name == name:
                 return t
         return None
+
+    def _maybe_inject_credential(self, tool: Tool, args: dict) -> None:
+        """Issue and inject a scoped credential token when a tool requires one.
+
+        The token value is never materialized as a plain string inside the
+        environment; it is stored as a ScopedToken whose repr/str hide the
+        underlying secret. If no broker is configured, the tool proceeds
+        without credentials (graceful degradation).
+        """
+        if not getattr(tool, "requires_credentials", False):
+            return
+        if self._credential_broker is None:
+            return
+        token = self._credential_broker.issue_token(tool.name, tool_name=tool.name)
+        args["_credential_token"] = token
 
     def _prepare_tool_call(self, ref: ToolRef, args: dict) -> tuple[Tool | None, Any]:
         """Permission gate for tool calls; shared by sync and async paths."""

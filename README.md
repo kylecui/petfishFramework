@@ -4,7 +4,7 @@
 
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://github.com/kylecui/petfishFramework/blob/master/LICENSE)
-[![Tests: 234](https://img.shields.io/badge/tests-234-brightgreen.svg)](https://github.com/kylecui/petfishFramework/tree/master/tests/)
+[![Tests: 259](https://img.shields.io/badge/tests-259-brightgreen.svg)](https://github.com/kylecui/petfishFramework/tree/master/tests/)
 
 **Status: Alpha** — API may change. Core runtime works; see [Roadmap](#roadmap).
 
@@ -189,7 +189,7 @@ Run: `python examples/05_enterprise_expense.py`
 
 - **v0.2.x** (current): Core runtime, permission semantics, enterprise PoC, Trusted Publishing ✅
 - **v0.2.x**: Enterprise agent examples, structured audit reports
-- **v0.3.x**: Policy engine (YAML), credential broker
+- **v0.3.x**: Policy engine (YAML), credential broker ✅
 - **v0.4.x**: Production hardening, deployment guides
 
 ## Current Limitations
@@ -210,6 +210,8 @@ petfishFramework is **Alpha**. API may change before v1.0.
 | MCP client stdio | ✅ Available |
 | MCP server mode | 📋 Planned |
 | Structured output / conversation memory | ✅ Available |
+| YAML Policy Engine | ✅ Available |
+| Credential Broker | ✅ Available |
 | LATS / LLM+P | ⚠️ Lightweight implementations |
 | CRAG / Adaptive-RAG | ⚠️ Lightweight reference implementations |
 
@@ -219,7 +221,7 @@ petfishFramework is **Alpha**. API may change before v1.0.
 git clone https://github.com/kylecui/petfishFramework.git
 cd petfishFramework
 uv sync --all-extras
-uv run pytest              # 234 tests
+uv run pytest              # 259 tests
 uv run ruff check src/ tests/
 ```
 

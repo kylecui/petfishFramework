@@ -1,0 +1,23 @@
+version: "1.0"
+name: "enterprise-expense-policy"
+rules:
+  - name: deny-non-finance-approval
+    priority: 100
+    when:
+      action.tool_name: approve_payment
+      subject.role_not_in: [finance, admin]
+    effect: DENY
+    reason: "only finance/admin can approve payments"
+
+  - name: require-approval-for-side-effects
+    priority: 90
+    when:
+      tool.side_effect: true
+    effect: REQUIRE_APPROVAL
+    reason: "side-effect tool requires approval"
+
+  - name: default-allow
+    priority: 0
+    when: {}
+    effect: ALLOW
+    reason: "default allow"

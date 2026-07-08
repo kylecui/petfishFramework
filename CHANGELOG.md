@@ -2,6 +2,17 @@
 
 All notable changes to petfishFramework will be documented in this file.
 
+## [0.3.0] — 2026-07-08
+
+### v0.3.0 Policy Engine + Credential Broker Integration
+
+- YAML Policy Engine (Phase A1): load authorization rules from YAML via `YamlPolicy.from_file` / `from_string`
+- Condition matchers: `action.tool_name`, `subject.role_in`, `subject.role_not_in`, `action.args.amount_gt`, `action.args.amount_lt`, `tool.side_effect`, `tool.external_egress`
+- Enterprise expense YAML policy example (`examples/policies/enterprise-expense.yaml`)
+- `CredentialBroker` + `ScopedToken`: issue scoped, time-limited tokens that hide secrets in `repr` / `str`
+- `RuntimeEnvironment` integration: tools with `requires_credentials=True` receive a scoped token via `_credential_token` before execution
+- 3 new TDD tests covering credential injection, non-credential tools, and event-log safety
+
 ## [0.2.0] — 2026-07-08
 
 ### v0.2.0 Enterprise PoC Release
