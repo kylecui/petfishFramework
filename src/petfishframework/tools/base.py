@@ -10,6 +10,8 @@ from typing import Any, Callable
 
 from petfishframework.core.contracts import RiskLevel
 from petfishframework.core.types import ToolResult
+from petfishframework.reliability.retry import RetryPolicy
+from petfishframework.tools.rate_limiter import RateLimitPolicy
 
 
 @dataclass
@@ -29,6 +31,9 @@ class BaseTool:
     external_egress: bool = False
     requires_credentials: bool = False
     credential_name: str | None = None
+    rate_limit: RateLimitPolicy | None = None
+    retry_policy: RetryPolicy | None = None
+    supports_idempotency_key: bool = False
     _func: Callable[[dict[str, Any]], ToolResult] = field(
         default_factory=lambda: _not_implemented,
         compare=False,

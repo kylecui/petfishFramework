@@ -8,7 +8,13 @@ from __future__ import annotations
 import asyncio
 import copy
 from dataclasses import dataclass
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from petfishframework.reliability.timeout import TimeoutPolicy
+    from petfishframework.tools.idempotency import IdempotencyStore
+    from petfishframework.tools.rate_limiter import RateLimiter
+    from petfishframework.tools.schema_validator import ToolSchemaValidator
 
 from petfishframework.credentials import CredentialBroker
 from petfishframework.permissions.model import (
@@ -20,6 +26,8 @@ from petfishframework.permissions.model import (
     Subject,
 )
 from petfishframework.reliability.cost import CostAccountant
+from petfishframework.reliability.retry import RetryableError
+from petfishframework.reliability.timeout import OperationTimedOut
 
 from .contracts import Environment, ModelAdapter, Retriever, Tool
 from .events import EventEmitter
@@ -82,6 +90,10 @@ class RuntimeEnvironment(Environment):
     _accountant: CostAccountant | None = None
     credential_broker: CredentialBroker | None = None
     _model_calls: int = 0
+    timeout_policy: TimeoutPolicy | None = None
+    rate_limiter: RateLimiter | None = None
+    idempotency_store: IdempotencyStore | None = None
+    schema_validator: ToolSchemaValidator | None = None
 
     def __post_init__(self) -> None:
         if self._accountant is None:
@@ -187,20 +199,109 @@ class RuntimeEnvironment(Environment):
         if effect == DecisionEffect.PARTIAL_ALLOW and decision.allowed_fields is not None:
             args = {k: v for k, v in args.items() if k in decision.allowed_fields}
 
+        # Gate 1: schema validation (after PARTIAL_ALLOW filter, before MASK input)
+        if self.schema_validator is not None:
+            violations = self.schema_validator.validate(tool.input_schema, args)
+            if violations:
+                self.events.emit(
+                    "tool.schema_violation",
+                    {
+                        "tool_name": ref.name,
+                        "args": args,
+                        "violations": violations,
+                    },
+                )
+                return ToolResult(error=f"schema_violation: {'; '.join(violations)}")
+
+        # Gate 2: rate limiting (after schema validation, before MASK input)
+        tool_rate_limit = getattr(tool, "rate_limit", None)
+        if self.rate_limiter is not None and tool_rate_limit is not None:
+            if not self.rate_limiter.check(tool.name, tool_rate_limit):
+                self.events.emit(
+                    "tool.rate_limited",
+                    {
+                        "tool_name": ref.name,
+                        "args": args,
+                    },
+                )
+                return ToolResult(error=f"rate_limited: {tool.name}")
+
         # Pre-execution: input mask (strip/redact sensitive fields from args)
         if effect == DecisionEffect.MASK and decision.input_mask_fields:
             args = _apply_mask_to_dict(args, decision.input_mask_fields)
+
+        # Gate 3: idempotency check (after MASK input, before credential injection)
+        if self.idempotency_store is not None and getattr(tool, "supports_idempotency_key", False):
+            idem_key = args.get("_idempotency_key")
+            if idem_key is not None:
+                cached = self.idempotency_store.get(idem_key)
+                if cached is not None:
+                    self.events.emit(
+                        "tool.idempotent_cache_hit",
+                        {
+                            "tool_name": ref.name,
+                            "idempotency_key": idem_key,
+                        },
+                    )
+                    return cached
 
         # Execute tool (ALLOW, PARTIAL_ALLOW, DEGRADE-without-fallback, MASK all execute)
         import time as _time
 
         self._maybe_inject_credential(tool, args)
         start = _time.time()
+
+        def _execute() -> ToolResult:
+            return tool.execute(args)
+
+        execute_fn = _execute
+
+        # Apply retry (only for idempotent tools)
+        tool_retry_policy = getattr(tool, "retry_policy", None)
+        tool_idempotent = getattr(tool, "idempotent", False)
+        if tool_retry_policy is not None and tool_idempotent:
+            from petfishframework.reliability.retry import with_retry
+
+            execute_fn = with_retry(execute_fn, tool_retry_policy)
+
+        # Apply timeout
+        timeout_s: float | None = None
+        if self.timeout_policy is not None:
+            timeout_s = self.timeout_policy.tool_call_timeout_s
+        if timeout_s is not None and timeout_s > 0:
+            from petfishframework.reliability.timeout import with_timeout
+
+            execute_fn = with_timeout(execute_fn, timeout_s)
+
         try:
-            result = tool.execute(args)
+            result = execute_fn()
+        except OperationTimedOut:
+            self.events.emit(
+                "tool.timeout",
+                {
+                    "tool_name": ref.name,
+                    "timeout_s": timeout_s,
+                },
+            )
+            result = ToolResult(error=f"timeout after {timeout_s}s")
+        except RetryableError as e:
+            self.events.emit(
+                "tool.retry_exhausted",
+                {
+                    "tool_name": ref.name,
+                    "error": str(e),
+                },
+            )
+            result = ToolResult(error=f"retry_exhausted: {e}")
         except Exception as exc:
             result = ToolResult(error=str(exc))
         duration_ms = (_time.time() - start) * 1000
+
+        # Cache idempotent result
+        if self.idempotency_store is not None and getattr(tool, "supports_idempotency_key", False):
+            idem_key = args.get("_idempotency_key")
+            if idem_key is not None:
+                self.idempotency_store.put(idem_key, result)
 
         # Post-execution: output mask
         if effect == DecisionEffect.MASK:
@@ -279,15 +380,109 @@ class RuntimeEnvironment(Environment):
         if effect == DecisionEffect.PARTIAL_ALLOW and decision.allowed_fields is not None:
             args = {k: v for k, v in args.items() if k in decision.allowed_fields}
 
+        # Gate 1: schema validation (after PARTIAL_ALLOW filter, before MASK input)
+        if self.schema_validator is not None:
+            violations = self.schema_validator.validate(tool.input_schema, args)
+            if violations:
+                self.events.emit(
+                    "tool.schema_violation",
+                    {
+                        "tool_name": ref.name,
+                        "args": args,
+                        "violations": violations,
+                    },
+                )
+                return ToolResult(error=f"schema_violation: {'; '.join(violations)}")
+
+        # Gate 2: rate limiting (after schema validation, before MASK input)
+        tool_rate_limit = getattr(tool, "rate_limit", None)
+        if self.rate_limiter is not None and tool_rate_limit is not None:
+            if not self.rate_limiter.check(tool.name, tool_rate_limit):
+                self.events.emit(
+                    "tool.rate_limited",
+                    {
+                        "tool_name": ref.name,
+                        "args": args,
+                    },
+                )
+                return ToolResult(error=f"rate_limited: {tool.name}")
+
         # Pre-execution: input mask
         if effect == DecisionEffect.MASK and decision.input_mask_fields:
             args = _apply_mask_to_dict(args, decision.input_mask_fields)
 
+        # Gate 3: idempotency check (after MASK input, before credential injection)
+        if self.idempotency_store is not None and getattr(tool, "supports_idempotency_key", False):
+            idem_key = args.get("_idempotency_key")
+            if idem_key is not None:
+                cached = self.idempotency_store.get(idem_key)
+                if cached is not None:
+                    self.events.emit(
+                        "tool.idempotent_cache_hit",
+                        {
+                            "tool_name": ref.name,
+                            "idempotency_key": idem_key,
+                        },
+                    )
+                    return cached
+
         self._maybe_inject_credential(tool, args)
-        if asyncio.iscoroutinefunction(tool.execute):
-            result = await tool.execute(args)
-        else:
-            result = tool.execute(args)
+
+        async def _execute_async() -> ToolResult:
+            if asyncio.iscoroutinefunction(tool.execute):
+                return await tool.execute(args)
+            return tool.execute(args)
+
+        execute_fn = _execute_async
+
+        # Apply retry (only for idempotent tools)
+        tool_retry_policy = getattr(tool, "retry_policy", None)
+        tool_idempotent = getattr(tool, "idempotent", False)
+        if tool_retry_policy is not None and tool_idempotent:
+            from petfishframework.reliability.retry import with_retry_async
+
+            execute_fn = with_retry_async(execute_fn, tool_retry_policy)
+
+        # Apply timeout using asyncio.wait_for for true async cancellation
+        timeout_s: float | None = None
+        if self.timeout_policy is not None:
+            timeout_s = self.timeout_policy.tool_call_timeout_s
+        if timeout_s is not None and timeout_s > 0:
+            original_execute_fn = execute_fn
+
+            async def _with_timeout() -> ToolResult:
+                return await asyncio.wait_for(original_execute_fn(), timeout=timeout_s)
+
+            execute_fn = _with_timeout
+
+        try:
+            result = await execute_fn()
+        except asyncio.TimeoutError:
+            self.events.emit(
+                "tool.timeout",
+                {
+                    "tool_name": ref.name,
+                    "timeout_s": timeout_s,
+                },
+            )
+            result = ToolResult(error=f"timeout after {timeout_s}s")
+        except RetryableError as e:
+            self.events.emit(
+                "tool.retry_exhausted",
+                {
+                    "tool_name": ref.name,
+                    "error": str(e),
+                },
+            )
+            result = ToolResult(error=f"retry_exhausted: {e}")
+        except Exception as exc:
+            result = ToolResult(error=str(exc))
+
+        # Cache idempotent result
+        if self.idempotency_store is not None and getattr(tool, "supports_idempotency_key", False):
+            idem_key = args.get("_idempotency_key")
+            if idem_key is not None:
+                self.idempotency_store.put(idem_key, result)
 
         # Post-execution: output mask
         if effect == DecisionEffect.MASK:

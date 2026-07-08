@@ -20,15 +20,18 @@ from .model import (
     Resource,
     Subject,
 )
+from .risk_policy import CompositePolicy, RiskClassificationPolicy
 
 __all__ = [
     "AccessContext",
     "Action",
+    "CompositePolicy",
     "Decision",
     "DecisionEffect",
     "DefaultAllowPolicy",
     "DenyByDefaultPolicy",
     "PermissionPolicy",
     "Resource",
+    "RiskClassificationPolicy",
     "Subject",
 ]
