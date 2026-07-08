@@ -63,6 +63,10 @@ tasks/      任务与 backlog
 规则：每条必须是"违反会导致 bug，且代码本身无法自解释"的约束；上限 10 条。
 -->
 
+1. **Release 版本号 grep checklist** — 每次发布前必须 grep 旧版本号。`SECURITY.md` 的 Supported Versions 表是版本敏感文件，但 `pre_release.py` 不检查它。发布前手动执行 `grep -rn "0\.[0-9]\+\.x" SECURITY.md` 确认当前版本。遗漏会导致外部安全审计认为项目维护停滞。
+2. **新模块必须同步 `__init__.py` 导出** — 新增 `src/petfishframework/<module>/<sub>.py` 时，必须同时在 `<module>/__init__.py` 的 `__all__` 和 import 中添加导出。否则用户无法从包顶层导入，只能走子模块路径，违反 Python 包惯例。OTelSink/SIEMSink 在 v0.4.0 发布时遗漏了此步骤。
+3. **Docker ENTRYPOINT 必须有对应的 `__main__.py`** — Dockerfile 中 `ENTRYPOINT ["python", "-m", "petfishframework"]` 要求 `src/petfishframework/__main__.py` 存在且 `main()` 返回 int 退出码。没有 `__main__.py` 时容器启动直接 crash，且 CI 不构建 Docker 所以不会发现。
+
 ## Architecture Decisions
 
 <!-- 重大技术选型和设计决策的简要记录（一句话结论 + 指向 docs/ 下完整 ADR 的链接）。 -->

@@ -8,14 +8,30 @@ from typing import Any, TextIO
 from petfishframework.core.events import Event
 from petfishframework.credentials.token import ScopedToken
 
+DEFAULT_REDACT_KEYS: frozenset[str] = frozenset({
+    "api_key",
+    "secret",
+    "password",
+    "token",
+    "authorization",
+    "cookie",
+})
 
-def _redact_recursive(obj: Any, redacted_fields: list[str], path: str = "") -> Any:
-    """Return a deep copy of *obj* with credential tokens replaced by redaction markers.
 
-    Keys named ``_credential_token`` and any :class:`ScopedToken` values are
-    replaced with a dict containing only the token id, tool name, and a
-    ``redacted`` flag. The dotted paths of all redacted fields are appended to
-    *redacted_fields*.
+def _redact_recursive(
+    obj: Any,
+    redacted_fields: list[str],
+    redact_keys: frozenset[str],
+    path: str = "",
+) -> Any:
+    """Return a deep copy of *obj* with secrets replaced by redaction markers.
+
+    Redacts:
+        - :class:`ScopedToken` values (credential broker tokens)
+        - Keys named ``_credential_token``
+        - Keys matching *redact_keys* (e.g. ``api_key``, ``password``)
+
+    The dotted paths of all redacted fields are appended to *redacted_fields*.
     """
     if isinstance(obj, ScopedToken):
         redacted_fields.append(path)
@@ -41,13 +57,20 @@ def _redact_recursive(obj: Any, redacted_fields: list[str], path: str = "") -> A
                     result[key] = {**value, "redacted": True}
                 else:
                     result[key] = {"value": "[REDACTED]", "redacted": True}
+            elif key in redact_keys:
+                redacted_fields.append(current_path)
+                result[key] = "[REDACTED]"
             else:
-                result[key] = _redact_recursive(value, redacted_fields, current_path)
+                result[key] = _redact_recursive(
+                    value, redacted_fields, redact_keys, current_path,
+                )
         return result
 
     if isinstance(obj, list):
         return [
-            _redact_recursive(item, redacted_fields, f"{path}[{index}]")
+            _redact_recursive(
+                item, redacted_fields, redact_keys, f"{path}[{index}]",
+            )
             for index, item in enumerate(obj)
         ]
 
@@ -62,10 +85,29 @@ class SIEMSink:
     are appended to that file; otherwise they are collected in memory.
     """
 
-    def __init__(self, output_path: str | None = None) -> None:
+    def __init__(
+        self,
+        output_path: str | None = None,
+        *,
+        redact_keys: tuple[str, ...] | None = None,
+    ) -> None:
+        """Initialize SIEM sink.
+
+        Args:
+            output_path: File path for JSON-Lines output. If None, lines
+                are collected in memory.
+            redact_keys: Additional dict keys to redact beyond the defaults.
+                Defaults: ``api_key``, ``secret``, ``password``, ``token``,
+                ``authorization``, ``cookie``. Pass an empty tuple to disable
+                generic key redaction (credential tokens are always redacted).
+        """
         self._output_path = output_path
         self._lines: list[str] = []
         self._file: TextIO | None = None
+        if redact_keys is None:
+            self._redact_keys = DEFAULT_REDACT_KEYS
+        else:
+            self._redact_keys = frozenset(redact_keys)
         if output_path is not None:
             directory = os.path.dirname(output_path)
             if directory:
@@ -97,7 +139,9 @@ class SIEMSink:
 
     def _transform(self, event: Event) -> tuple[dict[str, Any], list[str]]:
         redacted_fields: list[str] = []
-        details = _redact_recursive(event.data, redacted_fields)
+        details = _redact_recursive(
+            event.data, redacted_fields, self._redact_keys,
+        )
         record: dict[str, Any] = {
             "timestamp": event.timestamp,
             "session_id": details.get("session_id", ""),

@@ -4,7 +4,7 @@
 
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://github.com/kylecui/petfishFramework/blob/master/LICENSE)
-[![Tests: 300](https://img.shields.io/badge/tests-300-brightgreen.svg)](https://github.com/kylecui/petfishFramework/tree/master/tests/)
+[![Tests: 305](https://img.shields.io/badge/tests-305-brightgreen.svg)](https://github.com/kylecui/petfishFramework/tree/master/tests/)
 
 **Status: Alpha** — API may change. Core runtime works; see [Roadmap](#roadmap).
 
@@ -157,7 +157,7 @@ print(result.summary())
 | **Environment** | Single chokepoint (all calls audited, budget-metered, permission-gated) |
 | **Budget** | Hard execution limits (tokens, cost, steps, tool calls) |
 | **Permission** | SARC access control with 6 DecisionEffects |
-| **Replay** | AUDIT event log available; RERUN + RESUME planned |
+| **Replay** | AUDIT event log via `session.replay()`; RERUN + RESUME via `reliability.replay` wrappers |
 | **Pass^k** | Reliability metric (k repetitions + perturbation suite) |
 
 ## Features
@@ -214,6 +214,22 @@ agent = Agent(model=model, reasoning=ReAct(), tools=tools, credential_broker=bro
 # Tools with requires_credentials=True receive a ScopedToken (repr-safe, auto-expiring)
 ```
 
+## Observability (OTel + SIEM)
+
+```python
+from petfishframework.observability import OTelSink, SIEMSink
+
+# OTel — creates spans for model/tool/session events (requires opentelemetry)
+otel_sink = OTelSink()  # no-op if opentelemetry not installed
+
+# SIEM — structured JSON-Lines export for downstream SIEM ingestion
+siem_sink = SIEMSink(output_path="audit.jsonl")
+# Credentials auto-redacted; configure additional secret fields:
+# siem_sink = SIEMSink(output_path="audit.jsonl", redact_keys=("api_key", "password"))
+
+agent = Agent(model=model, reasoning=ReAct(), tools=tools, event_sinks=(otel_sink, siem_sink))
+```
+
 ## Roadmap
 
 - **v0.2.x**: Core runtime, permission semantics, enterprise PoC, Trusted Publishing ✅
@@ -249,7 +265,7 @@ petfishFramework is **Alpha**. API may change before v1.0.
 git clone https://github.com/kylecui/petfishFramework.git
 cd petfishFramework
 uv sync --all-extras
-uv run pytest              # 300 tests
+uv run pytest              # 305 tests
 uv run ruff check src/ tests/
 ```
 

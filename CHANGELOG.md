@@ -2,6 +2,34 @@
 
 All notable changes to petfishFramework will be documented in this file.
 
+## [0.4.1] — 2026-07-08
+
+### Review Fix Patch
+
+#### Security & Version Hygiene
+- `SECURITY.md` Supported Versions updated from `0.2.x` to `0.4.x` active + `0.3.x` security fixes only
+- `AGENTS.md` Development Gotchas filled with 3 prevention rules (version grep, `__init__.py` export, Docker entrypoint)
+
+#### Observability API
+- `observability/__init__.py` now exports `OTelSink` and `SIEMSink` (previously required submodule import)
+- Updated docstring to reflect actual available sinks
+
+#### SIEMSink Enhanced Redaction
+- New `redact_keys` parameter: `SIEMSink(redact_keys=("api_key", "password", ...))`
+- Default redaction: `api_key`, `secret`, `password`, `token`, `authorization`, `cookie`
+- Nested dict key matching (e.g. `connection.password` in `details.redacted_fields`)
+- 3 new TDD tests: default keys, nested keys, custom keys
+
+#### Docker Entrypoint Fix
+- Created `src/petfishframework/__main__.py` — `python -m petfishframework` now works
+- Docker container `ENTRYPOINT` no longer crashes on start
+- 2 new TDD tests verifying exit code and output
+
+#### README
+- Core Concepts table: "RERUN + RESUME planned" → available
+- Added Observability (OTel + SIEM) section with code example
+- Test count badge updated to 305
+
 ## [0.4.0] — 2026-07-08
 
 ### v0.4.0 Production Foundation

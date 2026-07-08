@@ -112,3 +112,95 @@ def test_siem_sink_appends_to_file(tmp_path) -> None:
     assert len(lines) == 1
     parsed = json.loads(lines[0])
     assert parsed["session_id"] == "session-2"
+
+
+def test_siem_redacts_default_secret_keys() -> None:
+    """SIEMSink redacts api_key, password, secret by default."""
+    sink = SIEMSink()
+    sink(
+        Event(
+            type="tool.called",
+            timestamp=1.0,
+            data={
+                "session_id": "s1",
+                "tool_name": "webhook",
+                "api_key": "sk-live-12345",
+                "password": "hunter2",
+                "authorization": "Bearer xyz",
+                "normal_field": "visible",
+            },
+        )
+    )
+
+    export = sink.export()
+    assert "sk-live-12345" not in export
+    assert "hunter2" not in export
+    assert "Bearer xyz" not in export
+    assert "visible" in export
+
+    parsed = json.loads(sink.lines[0])
+    redacted = parsed["redacted_fields"]
+    assert "api_key" in redacted
+    assert "password" in redacted
+    assert "authorization" in redacted
+    assert parsed["details"]["api_key"] == "[REDACTED]"
+    assert parsed["details"]["password"] == "[REDACTED]"
+
+
+def test_siem_redacts_nested_secret_keys() -> None:
+    """SIEMSink redacts secrets in nested dicts."""
+    sink = SIEMSink()
+    sink(
+        Event(
+            type="tool.called",
+            timestamp=1.0,
+            data={
+                "session_id": "s1",
+                "tool_name": "db_query",
+                "connection": {
+                    "host": "db.internal",
+                    "password": "pg-secret-99",
+                },
+                "results": [
+                    {"id": 1, "token": "row-token-abc"},
+                    {"id": 2, "token": "row-token-def"},
+                ],
+            },
+        )
+    )
+
+    export = sink.export()
+    assert "pg-secret-99" not in export
+    assert "row-token-abc" not in export
+    assert "row-token-def" not in export
+    assert "db.internal" in export
+
+    parsed = json.loads(sink.lines[0])
+    redacted = parsed["redacted_fields"]
+    assert "connection.password" in redacted
+    assert "results[0].token" in redacted
+    assert "results[1].token" in redacted
+
+
+def test_siem_custom_redact_keys() -> None:
+    """SIEMSink accepts custom redact_keys tuple."""
+    sink = SIEMSink(redact_keys=("private_key", "session_secret"))
+    sink(
+        Event(
+            type="tool.called",
+            timestamp=1.0,
+            data={
+                "session_id": "s1",
+                "tool_name": "crypto",
+                "private_key": "-----BEGIN PRIVATE KEY-----",
+                "session_secret": "abc123",
+                # api_key is NOT in custom keys, should NOT be redacted
+                "api_key": "visible-by-config",
+            },
+        )
+    )
+
+    export = sink.export()
+    assert "BEGIN PRIVATE KEY" not in export
+    assert "abc123" not in export
+    assert "visible-by-config" in export
