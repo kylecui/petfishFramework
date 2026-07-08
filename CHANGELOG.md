@@ -2,6 +2,50 @@
 
 All notable changes to petfishFramework will be documented in this file.
 
+## [0.5.0] — 2026-07-08
+
+### Tool / MCP Governance
+
+#### Phase A: Tool Schema & Metadata
+- **ToolSchemaValidator** — JSON schema validation on tool args before execution. Built-in validator covers type/required/properties/enum/additionalProperties. Optional `jsonschema` extra for full draft-2020 compliance. Wired into `RuntimeEnvironment.call()` after PARTIAL_ALLOW filter.
+- **ToolMetadataPolicy** — strict/lenient enforcement of tool metadata fields (risk_level, side_effect, idempotent, etc.). Validation at RuntimeEnvironment construction time. Default lenient (backward compatible).
+
+#### Phase B: Execution Hardening
+- **TimeoutPolicy wiring** — `with_timeout` wraps `tool.execute()` in `call()`. Timeout caught internally, returns `ToolResult(error="timeout")`, never raises to caller. Async path uses `asyncio.wait_for`.
+- **RetryPolicy wiring** — `with_retry` wraps idempotent tool execution. **Hard gate: only retries when `tool.idempotent == True`** (non-idempotent tools never retried — prevents duplicate side effects).
+- **IdempotencyStore** — session-scoped dedup via `_idempotency_key` in args. TTL-based cache. Cache hit returns early without executing tool.
+
+#### Phase C: Rate Limiting & Risk Classification
+- **RateLimiter** — per-tool, session-scoped sliding-window rate limiting. `RateLimitPolicy(max_calls, window_s)` configurable per-tool via `BaseTool.rate_limit` or env-level. Over-limit → `ToolResult(error="rate_limited")`.
+- **RiskClassificationPolicy** — maps `RiskLevel` → default `DecisionEffect` (CRITICAL/HIGH → REQUIRE_APPROVAL, MEDIUM/LOW → ALLOW). Opt-in via `permission_policy=`. **CompositePolicy** combines multiple policies with deny-overrides semantics.
+
+#### Phase D: MCP Client Governance
+- **MCPAllowlist** — governs which MCP servers can connect. Strict mode rejects unlisted servers before subprocess spawn. Lenient default (backward compatible).
+- **SchemaPin** — freezes discovered MCP tool `input_schema` hashes for drift detection. Description-only changes do NOT trigger drift (structural pinning only). `MCPClient.pin_schemas()` + `verify_schemas()`.
+- **MCPRiskMapper** — auto-classifies MCP tools by capability → RiskLevel (write/exec/network → HIGH, read → LOW). Applied during `discover_tools()`.
+- **Health check + lifecycle** — `MCPClient.health()`, `close()`, `reconnect()`, context manager (`__enter__`/`__exit__`). No zombie subprocesses.
+
+#### New BaseTool Fields (all optional, backward compatible)
+- `rate_limit: RateLimitPolicy | None = None`
+- `retry_policy: RetryPolicy | None = None`
+- `supports_idempotency_key: bool = False`
+
+#### New RuntimeEnvironment Fields (all optional, None = no-op)
+- `timeout_policy: TimeoutPolicy | None = None`
+- `rate_limiter: RateLimiter | None = None`
+- `idempotency_store: IdempotencyStore | None = None`
+- `schema_validator: ToolSchemaValidator | None = None`
+
+#### Test Growth
+- v0.4.5: 308 tests → v0.5.0: 352 tests (+44)
+- All existing tests unmodified (backward compatible)
+
+#### Deferred to v0.6+
+- ❌ MCP server mode (`serve_as_mcp`)
+- ❌ Sandbox execution (subprocess/container isolation)
+- ❌ Per-tenant rate limiting
+- ❌ Policy hot-reload
+
 ## [0.4.5] — 2026-07-08
 
 ### v0.5 Readiness: API Documentation + Technical Debt Cleanup

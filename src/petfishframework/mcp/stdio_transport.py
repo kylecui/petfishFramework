@@ -159,6 +159,16 @@ class StdioMCPClient:
         self._server_capabilities = (result or {}).get("capabilities", {})
         self._send_notification("notifications/initialized")
 
+    def ping(self) -> bool:
+        """Send a ping and return True if the server responds."""
+        if self._process is None or self._process.poll() is not None:
+            return False
+        try:
+            self._send_request("ping", {})
+        except Exception:  # noqa: BLE001
+            return False
+        return True
+
     def list_tools(self) -> list[dict[str, Any]]:
         """Return the list of tools exposed by the server."""
         result = self._send_request("tools/list", {})
