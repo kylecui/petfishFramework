@@ -35,6 +35,7 @@ class Agent:
     )
     tool_registry: Any = None  # ToolRegistry | None — lazy typed to avoid import cycle
     credential_broker: Any = None  # CredentialBroker | None — lazy typed to avoid import cycle
+    tool_governance: Any = None  # ToolGovernance | None — lazy typed to avoid import cycle
 
     def __post_init__(self) -> None:
         """Resolve model string shortcuts (e.g. 'openai:gpt-4o')."""
@@ -181,6 +182,7 @@ class Agent:
             conversation_id=conversation_id,
             conversation_store=conversation_store,
             credential_broker=self.credential_broker,
+            tool_governance=self.tool_governance,
         )
 
     async def session_async(

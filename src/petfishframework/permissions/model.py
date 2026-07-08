@@ -61,6 +61,7 @@ class Resource:
     type: str = "tool"  # tool | data | output | model
     classification: str = "public"
     tags: tuple[str, ...] = ()
+    risk_level: object | None = None  # RiskLevel | None (avoids circular import)
 
 
 @dataclass(frozen=True)

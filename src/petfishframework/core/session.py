@@ -45,6 +45,7 @@ class Session:
     conversation_id: str | None = None
     conversation_store: ConversationStore | None = None
     credential_broker: Any = None  # CredentialBroker | None
+    tool_governance: Any = None  # ToolGovernance | None
 
     def run(self) -> Result:
         """Execute the session and return a Result."""
@@ -74,6 +75,7 @@ class Session:
         )
 
         budget = self.budget if self.budget is not None else Budget()
+        tg = self.tool_governance
         self._env = RuntimeEnvironment(
             model=self.model,
             _tools=self.tools,
@@ -83,6 +85,10 @@ class Session:
             policy=self.policy,
             session_id=self.session_id,
             credential_broker=self.credential_broker,
+            schema_validator=getattr(tg, "schema_validator", None) if tg else None,
+            rate_limiter=getattr(tg, "rate_limiter", None) if tg else None,
+            idempotency_store=getattr(tg, "idempotency_store", None) if tg else None,
+            timeout_policy=getattr(tg, "timeout_policy", None) if tg else None,
         )
 
         conversation_history = self._load_conversation_history()

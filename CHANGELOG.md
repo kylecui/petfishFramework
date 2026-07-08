@@ -2,6 +2,31 @@
 
 All notable changes to petfishFramework will be documented in this file.
 
+## [0.5.2] — 2026-07-09
+
+### Review Fix Patch
+
+#### MCP Server Version Fix
+- `serve_as_mcp()` now returns dynamic `__version__` instead of hardcoded "0.5.0"
+
+#### README Status Sync
+- MCP server mode: `📋 Planned` → `✅ MVP (stdio JSON-RPC: initialize/tools.list/tools.call)`
+- Examples run instruction: added "from a repository checkout" clarification
+
+#### ToolGovernance First-Class API
+- New `ToolGovernance` dataclass bundles schema_validator + rate_limiter + idempotency_store + timeout_policy
+- `Agent(tool_governance=...)` wires governance into Session → RuntimeEnvironment
+- No more need to construct RuntimeEnvironment directly for governance features
+- README now includes Tool Governance usage example
+
+#### Resource Type Fix
+- `Resource` dataclass gains `risk_level: RiskLevel | None` field
+- `RiskClassificationPolicy` now works with standard Resource objects
+
+#### Rate-Limit / Idempotency Order Fix
+- Idempotency cache check moved BEFORE rate limiting
+- Cache hits no longer consume rate quota (correct semantic: rate limit counts real executions)
+
 ## [0.5.1] — 2026-07-09
 
 ### Deferred Items Completion + Reasoning Strategy Upgrades

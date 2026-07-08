@@ -10,6 +10,7 @@ import json
 import sys
 from typing import Any, TextIO
 
+from petfishframework import __version__
 from petfishframework.core.contracts import Tool
 from petfishframework.core.types import ToolResult
 
@@ -54,7 +55,7 @@ def serve_as_mcp(
     def _handle_initialize(request_id: Any) -> None:
         result = {
             "protocolVersion": "2024-11-05",
-            "serverInfo": {"name": name, "version": "0.5.0"},
+            "serverInfo": {"name": name, "version": __version__},
             "capabilities": {"tools": {}},
         }
         _write(_success_response(request_id, result))

@@ -213,7 +213,22 @@ class RuntimeEnvironment(Environment):
                 )
                 return ToolResult(error=f"schema_violation: {'; '.join(violations)}")
 
-        # Gate 2: rate limiting (after schema validation, before MASK input)
+        # Gate 2: idempotency check (before rate limit — cache hit should not consume quota)
+        if self.idempotency_store is not None and getattr(tool, "supports_idempotency_key", False):
+            idem_key = args.get("_idempotency_key")
+            if idem_key is not None:
+                cached = self.idempotency_store.get(idem_key)
+                if cached is not None:
+                    self.events.emit(
+                        "tool.idempotent_cache_hit",
+                        {
+                            "tool_name": ref.name,
+                            "idempotency_key": idem_key,
+                        },
+                    )
+                    return cached
+
+        # Gate 3: rate limiting (after idempotency cache miss, before MASK input)
         tool_rate_limit = getattr(tool, "rate_limit", None)
         if self.rate_limiter is not None and tool_rate_limit is not None:
             if not self.rate_limiter.check(tool.name, tool_rate_limit):
@@ -229,21 +244,6 @@ class RuntimeEnvironment(Environment):
         # Pre-execution: input mask (strip/redact sensitive fields from args)
         if effect == DecisionEffect.MASK and decision.input_mask_fields:
             args = _apply_mask_to_dict(args, decision.input_mask_fields)
-
-        # Gate 3: idempotency check (after MASK input, before credential injection)
-        if self.idempotency_store is not None and getattr(tool, "supports_idempotency_key", False):
-            idem_key = args.get("_idempotency_key")
-            if idem_key is not None:
-                cached = self.idempotency_store.get(idem_key)
-                if cached is not None:
-                    self.events.emit(
-                        "tool.idempotent_cache_hit",
-                        {
-                            "tool_name": ref.name,
-                            "idempotency_key": idem_key,
-                        },
-                    )
-                    return cached
 
         # Execute tool (ALLOW, PARTIAL_ALLOW, DEGRADE-without-fallback, MASK all execute)
         import time as _time

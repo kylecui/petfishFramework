@@ -183,7 +183,7 @@ print(result.summary())
 
 See `examples/05_enterprise_expense.py` and `tests/test_enterprise_demo.py` for a complete enterprise expense approval scenario demonstrating all 6 DecisionEffects.
 
-Run: `python examples/05_enterprise_expense.py`
+Run (from a repository checkout): `python examples/05_enterprise_expense.py`
 
 ## YAML Policy Engine
 
@@ -236,6 +236,20 @@ session.events.subscribe(siem_sink)
 result = session.run()
 ```
 
+## Tool Governance
+
+```python
+from petfishframework.tools import ToolGovernance, ToolSchemaValidator
+from petfishframework.tools.rate_limiter import RateLimiter, RateLimitPolicy
+
+governance = ToolGovernance(
+    schema_validator=ToolSchemaValidator(),  # validate tool args before execution
+    rate_limiter=RateLimiter(),              # per-tool sliding-window rate limit
+)
+
+agent = Agent(model=model, reasoning=ReAct(), tools=tools, tool_governance=governance)
+```
+
 ## Roadmap
 
 - **v0.2.x**: Core runtime, permission semantics, enterprise PoC, Trusted Publishing ✅
@@ -258,7 +272,7 @@ petfishFramework is **Alpha**. API may change before v1.0.
 | Session replay / deterministic rerun / resume | ✅ Available |
 | OpenTelemetry + SIEM observability | ✅ Available |
 | MCP client stdio | ✅ Available |
-| MCP server mode | 📋 Planned |
+| MCP server mode | ✅ MVP (stdio JSON-RPC: initialize/tools.list/tools.call) |
 | Structured output / conversation memory | ✅ Available |
 | YAML Policy Engine | ✅ Available |
 | Credential Broker | ✅ Available |
