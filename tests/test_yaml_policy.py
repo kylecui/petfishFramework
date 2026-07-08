@@ -7,10 +7,12 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from petfishframework import Agent, ReAct
+from petfishframework.core.contracts import RiskLevel
 from petfishframework.core.types import ToolResult
 from petfishframework.models.fake import FakeModel
 from petfishframework.permissions.model import AccessContext, Action, DecisionEffect, Resource, Subject
 from petfishframework.policies import YamlPolicy
+from petfishframework.policies.validator import validate_policy
 from petfishframework.tools.base import BaseTool
 
 # Module-level state for side-effect tracking
@@ -323,3 +325,326 @@ rules:
     assert decision.effect == DecisionEffect.DENY
     assert decision.policy_version == "3.0"
     assert decision.policy_name == "versioned-policy"
+
+
+# ── v0.3.2 matcher expansion ──
+
+
+def test_matcher_amount_gte() -> None:
+    """amount_gte condition compares numerically."""
+    policy = YamlPolicy.from_string("""
+rules:
+  - name: min-amount
+    priority: 50
+    when:
+      action.args.amount_gte: 1000
+    effect: DENY
+    reason: "amount below minimum"
+""")
+    action = Action(type="call", tool_name="approve_payment", args={"amount": 1000})
+    assert policy.evaluate(Subject(), action, Resource(), AccessContext()).effect == DecisionEffect.DENY
+
+    action_small = Action(type="call", tool_name="approve_payment", args={"amount": 999})
+    assert policy.evaluate(Subject(), action_small, Resource(), AccessContext()).effect == DecisionEffect.ALLOW
+
+
+def test_matcher_amount_eq() -> None:
+    """amount_eq condition compares numerically."""
+    policy = YamlPolicy.from_string("""
+rules:
+  - name: exact-amount
+    priority: 50
+    when:
+      action.args.amount_eq: 100
+    effect: DENY
+    reason: "amount matched"
+""")
+    action = Action(type="call", tool_name="approve_payment", args={"amount": 100})
+    assert policy.evaluate(Subject(), action, Resource(), AccessContext()).effect == DecisionEffect.DENY
+
+    action_other = Action(type="call", tool_name="approve_payment", args={"amount": 101})
+    assert policy.evaluate(Subject(), action_other, Resource(), AccessContext()).effect == DecisionEffect.ALLOW
+
+
+def test_matcher_generic_field_eq() -> None:
+    """Generic action.args.<field>_eq matches any argument key."""
+    policy = YamlPolicy.from_string("""
+rules:
+  - name: block-alice
+    priority: 50
+    when:
+      action.args.recipient_eq: alice
+    effect: DENY
+    reason: "alice is blocked"
+""")
+    action = Action(type="call", tool_name="transfer", args={"recipient": "alice"})
+    assert policy.evaluate(Subject(), action, Resource(), AccessContext()).effect == DecisionEffect.DENY
+
+    action_bob = Action(type="call", tool_name="transfer", args={"recipient": "bob"})
+    assert policy.evaluate(Subject(), action_bob, Resource(), AccessContext()).effect == DecisionEffect.ALLOW
+
+
+def test_matcher_subject_clearance_eq() -> None:
+    """subject.clearance_eq matches the clearance field."""
+    policy = YamlPolicy.from_string("""
+rules:
+  - name: block-internal
+    priority: 50
+    when:
+      subject.clearance_eq: internal
+    effect: DENY
+""")
+    internal = Subject(clearance="internal")
+    public = Subject(clearance="public")
+    action = Action(type="call", tool_name="read")
+    assert policy.evaluate(internal, action, Resource(), AccessContext()).effect == DecisionEffect.DENY
+    assert policy.evaluate(public, action, Resource(), AccessContext()).effect == DecisionEffect.ALLOW
+
+
+def test_matcher_subject_tenant_id_eq() -> None:
+    """subject.tenant_id_eq matches the tenant_id field."""
+    policy = YamlPolicy.from_string("""
+rules:
+  - name: block-tenant
+    priority: 50
+    when:
+      subject.tenant_id_eq: acme
+    effect: DENY
+""")
+    acme = Subject(tenant_id="acme")
+    default = Subject(tenant_id="default")
+    action = Action(type="call", tool_name="read")
+    assert policy.evaluate(acme, action, Resource(), AccessContext()).effect == DecisionEffect.DENY
+    assert policy.evaluate(default, action, Resource(), AccessContext()).effect == DecisionEffect.ALLOW
+
+
+def test_matcher_resource_classification_eq() -> None:
+    """resource.classification_eq matches the classification field."""
+    policy = YamlPolicy.from_string("""
+rules:
+  - name: block-confidential
+    priority: 50
+    when:
+      resource.classification_eq: confidential
+    effect: DENY
+""")
+    action = Action(type="call", tool_name="read")
+    confidential = Resource(classification="confidential")
+    public = Resource(classification="public")
+    assert policy.evaluate(Subject(), action, confidential, AccessContext()).effect == DecisionEffect.DENY
+    assert policy.evaluate(Subject(), action, public, AccessContext()).effect == DecisionEffect.ALLOW
+
+
+def test_matcher_resource_tags_contains() -> None:
+    """resource.tags_contains matches when any listed tag is present."""
+    policy = YamlPolicy.from_string("""
+rules:
+  - name: block-pii
+    priority: 50
+    when:
+      resource.tags_contains: [pii, sensitive]
+    effect: DENY
+""")
+    action = Action(type="call", tool_name="read")
+    tagged = Resource(tags=("pii", "finance"))
+    clean = Resource(tags=("public",))
+    assert policy.evaluate(Subject(), action, tagged, AccessContext()).effect == DecisionEffect.DENY
+    assert policy.evaluate(Subject(), action, clean, AccessContext()).effect == DecisionEffect.ALLOW
+
+
+def test_matcher_tool_risk_level_eq() -> None:
+    """tool.risk_level_eq matches tool metadata risk_level."""
+    policy = YamlPolicy.from_string("""
+rules:
+  - name: block-high-risk
+    priority: 50
+    when:
+      tool.risk_level_eq: high
+    effect: DENY
+""")
+    policy.register_tools((
+        DummyTool(name="safe", risk_level=RiskLevel.LOW),
+        DummyTool(name="risky", risk_level=RiskLevel.HIGH),
+    ))
+    safe_action = Action(type="call", tool_name="safe")
+    risky_action = Action(type="call", tool_name="risky")
+    decision = policy.evaluate(Subject(), safe_action, Resource(), AccessContext())
+    assert decision.effect == DecisionEffect.ALLOW
+    decision = policy.evaluate(Subject(), risky_action, Resource(), AccessContext())
+    assert decision.effect == DecisionEffect.DENY
+
+
+def test_matcher_tool_capabilities_contains() -> None:
+    """tool.capabilities_contains matches any capability in the value list."""
+    policy = YamlPolicy.from_string("""
+rules:
+  - name: block-write
+    priority: 50
+    when:
+      tool.capabilities_contains: [fs:write]
+    effect: DENY
+""")
+    policy.register_tools((
+        DummyTool(name="reader", capabilities=("fs:read",)),
+        DummyTool(name="writer", capabilities=("fs:write",)),
+    ))
+    read_action = Action(type="call", tool_name="reader")
+    write_action = Action(type="call", tool_name="writer")
+    decision = policy.evaluate(Subject(), read_action, Resource(), AccessContext())
+    assert decision.effect == DecisionEffect.ALLOW
+    decision = policy.evaluate(Subject(), write_action, Resource(), AccessContext())
+    assert decision.effect == DecisionEffect.DENY
+
+
+def test_matcher_tool_requires_credentials() -> None:
+    """tool.requires_credentials matches tool metadata boolean."""
+    policy = YamlPolicy.from_string("""
+rules:
+  - name: block-credential-tools
+    priority: 50
+    when:
+      tool.requires_credentials: true
+    effect: DENY
+""")
+    policy.register_tools((
+        DummyTool(name="open", requires_credentials=False),
+        DummyTool(name="cred", requires_credentials=True),
+    ))
+    open_action = Action(type="call", tool_name="open")
+    cred_action = Action(type="call", tool_name="cred")
+    decision = policy.evaluate(Subject(), open_action, Resource(), AccessContext())
+    assert decision.effect == DecisionEffect.ALLOW
+    decision = policy.evaluate(Subject(), cred_action, Resource(), AccessContext())
+    assert decision.effect == DecisionEffect.DENY
+
+
+# ── Combinator tests ──
+
+
+def test_combinator_any() -> None:
+    """any combinator matches when at least one sub-condition matches."""
+    policy = YamlPolicy.from_string("""
+rules:
+  - name: block-payment-tools
+    priority: 50
+    when:
+      any:
+        - action.tool_name: approve_payment
+        - action.tool_name: transfer_funds
+    effect: DENY
+""")
+    approve = Action(type="call", tool_name="approve_payment")
+    transfer = Action(type="call", tool_name="transfer_funds")
+    safe = Action(type="call", tool_name="safe")
+    decision = policy.evaluate(Subject(), approve, Resource(), AccessContext())
+    assert decision.effect == DecisionEffect.DENY
+    decision = policy.evaluate(Subject(), transfer, Resource(), AccessContext())
+    assert decision.effect == DecisionEffect.DENY
+    decision = policy.evaluate(Subject(), safe, Resource(), AccessContext())
+    assert decision.effect == DecisionEffect.ALLOW
+
+
+def test_combinator_all() -> None:
+    """all combinator matches only when every sub-condition matches."""
+    policy = YamlPolicy.from_string("""
+rules:
+  - name: block-non-finance-payment
+    priority: 50
+    when:
+      all:
+        - action.tool_name: approve_payment
+        - subject.role_not_in: [finance]
+    effect: DENY
+""")
+    action = Action(type="call", tool_name="approve_payment")
+    other = Action(type="call", tool_name="other")
+    engineer = Subject(roles=("engineer",))
+    finance = Subject(roles=("finance",))
+    decision = policy.evaluate(engineer, action, Resource(), AccessContext())
+    assert decision.effect == DecisionEffect.DENY
+    decision = policy.evaluate(finance, action, Resource(), AccessContext())
+    assert decision.effect == DecisionEffect.ALLOW
+    decision = policy.evaluate(engineer, other, Resource(), AccessContext())
+    assert decision.effect == DecisionEffect.ALLOW
+
+
+def test_combinator_not() -> None:
+    """not combinator inverts the inner condition block."""
+    policy = YamlPolicy.from_string("""
+rules:
+  - name: deny-non-admin
+    priority: 50
+    when:
+      not:
+        subject.role_in: [admin]
+    effect: DENY
+""")
+    action = Action(type="call", tool_name="admin_tool")
+    admin = Subject(roles=("admin",))
+    user = Subject(roles=("user",))
+    decision = policy.evaluate(admin, action, Resource(), AccessContext())
+    assert decision.effect == DecisionEffect.ALLOW
+    decision = policy.evaluate(user, action, Resource(), AccessContext())
+    assert decision.effect == DecisionEffect.DENY
+
+
+def test_combinator_nested_not_any() -> None:
+    """Combinators can nest: not { any { ... } }."""
+    policy = YamlPolicy.from_string("""
+rules:
+  - name: only-admins-or-safe-tools
+    priority: 50
+    when:
+      not:
+        any:
+          - action.tool_name: safe_tool
+          - subject.role_in: [admin]
+    effect: DENY
+""")
+    safe_action = Action(type="call", tool_name="safe_tool")
+    dangerous_action = Action(type="call", tool_name="dangerous_tool")
+    admin = Subject(roles=("admin",))
+    user = Subject(roles=("user",))
+    assert policy.evaluate(user, safe_action, Resource(), AccessContext()).effect == DecisionEffect.ALLOW
+    assert policy.evaluate(admin, dangerous_action, Resource(), AccessContext()).effect == DecisionEffect.ALLOW
+    assert policy.evaluate(user, dangerous_action, Resource(), AccessContext()).effect == DecisionEffect.DENY
+
+
+# ── Schema validation tests ──
+
+
+def test_schema_validation_valid() -> None:
+    """A well-formed policy produces no validation errors."""
+    data = {
+        "version": "1.0",
+        "name": "valid-policy",
+        "rules": [
+            {"name": "default-allow", "priority": 0, "when": {}, "effect": "ALLOW"},
+        ],
+    }
+    assert validate_policy(data) == []
+
+
+def test_schema_validation_missing_version() -> None:
+    """Missing version field is reported as an error."""
+    data = {"name": "bad", "rules": []}
+    errors = validate_policy(data)
+    assert any("version" in error for error in errors)
+
+
+def test_schema_validation_invalid_effect() -> None:
+    """Invalid effect value is reported as an error."""
+    data = {
+        "version": "1.0",
+        "name": "bad",
+        "rules": [{"name": "bad-rule", "effect": "BAN"}],
+    }
+    errors = validate_policy(data)
+    assert any("effect" in error for error in errors)
+
+
+def test_schema_validation_missing_rules() -> None:
+    """Missing rules field is reported as an error."""
+    data = {"version": "1.0", "name": "bad"}
+    errors = validate_policy(data)
+    assert any("rules" in error for error in errors)

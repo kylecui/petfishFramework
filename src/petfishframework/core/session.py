@@ -133,6 +133,7 @@ class Session:
         self._result = result
 
         self._save_conversation_history(result)
+        self._cleanup_credentials()
 
         self.events.emit(
             "session.end",
@@ -149,6 +150,21 @@ class Session:
             },
         )
         return result
+
+    def _cleanup_credentials(self) -> None:
+        """Clean up scoped credentials at session end."""
+        broker = self.credential_broker
+        if broker is None:
+            return
+
+        cleanup_expired = getattr(broker, "cleanup_expired", None)
+        if callable(cleanup_expired):
+            cleanup_expired()
+
+        revoke_all_for_tool = getattr(broker, "revoke_all_for_tool", None)
+        if callable(revoke_all_for_tool):
+            for tool in self.tools:
+                revoke_all_for_tool(tool.name)
 
     def _save_conversation_history(self, result: Result) -> None:
         """Persist previous history plus the current user/assistant turn."""

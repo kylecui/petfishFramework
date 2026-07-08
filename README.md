@@ -4,7 +4,7 @@
 
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://github.com/kylecui/petfishFramework/blob/master/LICENSE)
-[![Tests: 259](https://img.shields.io/badge/tests-259-brightgreen.svg)](https://github.com/kylecui/petfishFramework/tree/master/tests/)
+[![Tests: 284](https://img.shields.io/badge/tests-259-brightgreen.svg)](https://github.com/kylecui/petfishFramework/tree/master/tests/)
 
 **Status: Alpha** — API may change. Core runtime works; see [Roadmap](#roadmap).
 
@@ -249,7 +249,7 @@ petfishFramework is **Alpha**. API may change before v1.0.
 git clone https://github.com/kylecui/petfishFramework.git
 cd petfishFramework
 uv sync --all-extras
-uv run pytest              # 259 tests
+uv run pytest              # 284 tests
 uv run ruff check src/ tests/
 ```
 

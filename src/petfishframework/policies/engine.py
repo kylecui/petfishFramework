@@ -1,4 +1,4 @@
-"""YAML Policy Engine (v0.3.0 Phase A1).
+"""YAML Policy Engine (v0.3.2).
 
 Loads authorization rules from YAML and evaluates them in priority order.
 Implements the PermissionPolicy protocol so it can be plugged directly into
@@ -58,6 +58,9 @@ class YamlPolicy:
             self._tool_metadata[name] = {
                 "side_effect": getattr(tool, "side_effect", False),
                 "external_egress": getattr(tool, "external_egress", False),
+                "risk_level": getattr(tool, "risk_level", None),
+                "capabilities": getattr(tool, "capabilities", ()),
+                "requires_credentials": getattr(tool, "requires_credentials", False),
             }
 
     def evaluate(self, subject: Subject, action: Action, resource: Resource, context: AccessContext) -> Decision:

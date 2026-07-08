@@ -28,6 +28,7 @@ class CredentialBroker:
         name: str,
         tool_name: str,
         ttl_s: float | None = None,
+        max_uses: int = 0,
     ) -> ScopedToken:
         """Issue a scoped, time-limited token for a specific tool."""
         if name not in self._credentials:
@@ -42,6 +43,7 @@ class CredentialBroker:
             token_id=token_id,
             tool_name=tool_name,
             expires_at=expires_at,
+            max_uses=max_uses,
             _secret=secret,
         )
         self._active_tokens[token_id] = token
@@ -57,6 +59,38 @@ class CredentialBroker:
     def revoke_token(self, token_id: str) -> None:
         """Revoke a token immediately."""
         self._active_tokens.pop(token_id, None)
+
+    def revoke_all_for_tool(self, tool_name: str) -> int:
+        """Revoke all active tokens issued for a specific tool.
+
+        Returns the number of tokens revoked.
+        """
+        token_ids = [
+            token_id
+            for token_id, token in self._active_tokens.items()
+            if token.tool_name == tool_name
+        ]
+        for token_id in token_ids:
+            del self._active_tokens[token_id]
+        return len(token_ids)
+
+    def revoke_all(self) -> int:
+        """Revoke all active tokens.
+
+        Returns the number of tokens revoked.
+        """
+        count = len(self._active_tokens)
+        self._active_tokens.clear()
+        return count
+
+    @property
+    def active_token_count(self) -> int:
+        """Return the number of currently active tokens."""
+        return len(self._active_tokens)
+
+    def list_active_tokens(self) -> list[str]:
+        """Return token IDs for all active tokens (secrets are not exposed)."""
+        return list(self._active_tokens.keys())
 
     def cleanup_expired(self) -> int:
         """Remove all expired tokens. Returns count removed."""

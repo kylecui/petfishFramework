@@ -1,7 +1,10 @@
-"""YAML policy rule representation (v0.3.0 Phase A1).
+"""YAML policy rule representation (v0.3.2).
 
 A PolicyRule is the atomic unit of a YamlPolicy. Rules are evaluated in
 priority order (descending); the first fully matching rule wins.
+
+Conditions support flat dictionaries (implicit AND) as well as nested
+``any``/``all``/``not`` combinators.
 """
 from __future__ import annotations
 

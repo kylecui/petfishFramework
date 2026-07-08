@@ -15,7 +15,7 @@ from .reasoning import LATS, LLMPlusP, ReAct
 from .reliability.replay import ReplayMode
 from .tools.base import BaseTool
 
-__version__ = "0.3.1"
+__version__ = "0.3.2"
 
 __all__ = [
     "Agent",

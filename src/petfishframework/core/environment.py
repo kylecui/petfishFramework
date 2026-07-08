@@ -334,7 +334,10 @@ class RuntimeEnvironment(Environment):
             return
         if self.credential_broker is None:
             return
-        token = self.credential_broker.issue_token(tool.name, tool_name=tool.name)
+        credential_name = getattr(tool, "credential_name", None) or tool.name
+        token = self.credential_broker.issue_token(
+            credential_name, tool_name=tool.name, max_uses=1
+        )
         args["_credential_token"] = token
 
     def _prepare_tool_call(self, ref: ToolRef, args: dict) -> tuple[Tool | None, Any]:
