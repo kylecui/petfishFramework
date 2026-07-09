@@ -69,6 +69,33 @@ These are implementation details that should not be directly imported:
 - `serve_as_mcp` — MCP server mode (functional minimal stdio JSON-RPC, moved from Internal)
 - `pass_at_k` perturbation functions (`canonical`, `order_shuffled`, etc.) — stable interface but internal implementations
 
+## Semantic Versioning
+
+Starting from v1.0.0, petfishFramework follows semantic versioning:
+
+| Version bump | When | Examples |
+|---|---|---|
+| **Major (2.0.0)** | Breaking changes to Stable APIs | Removing a Stable API, changing DecisionEffect semantics |
+| **Minor (1.x.0)** | New features, backward compatible | New tool, new sink, new policy matcher, Experimental→Stable promotion |
+| **Patch (1.0.x)** | Bug fixes, security patches, docs | Exception sanitization fix, SECURITY.md update, doc correction |
+
+## Breaking Change Policy
+
+Breaking changes to Stable APIs require:
+1. Announce in CHANGELOG with `BREAKING:` prefix
+2. Provide `DeprecationWarning` for at least 1 minor version
+3. Document migration path
+4. Only in major version bumps (e.g., 1.x → 2.0)
+
+Experimental APIs may change without deprecation cycle — only a CHANGELOG note is required.
+
+## Security Fix Policy
+
+Security fixes may break compatibility in patch versions if:
+- The fix prevents credential leakage, privilege escalation, or data exposure
+- The broken behavior was itself a security vulnerability
+- The fix is documented in CHANGELOG with `SECURITY:` prefix
+
 ## Deprecation Process
 
 When an API moves from Stable to deprecated:
@@ -76,7 +103,7 @@ When an API moves from Stable to deprecated:
 1. Add `DeprecationWarning` in the next minor version
 2. Document replacement in CHANGELOG
 3. Keep the API functional for at least 1 minor version
-4. Remove in the following minor version (or v1.0 if major)
+4. Remove in the following minor version (or next major if significant)
 
 ## v1.0 Freeze Criteria (Met)
 

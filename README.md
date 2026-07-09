@@ -1,12 +1,12 @@
 # petfishFramework
 
-> A lightweight Python framework for reliable, auditable, budget-aware, and permission-aware AI agents.
+> A runtime control framework for enterprise AI agents — enforcing policy, budget, credentials, audit, replay, and Tool/MCP governance at execution time.
 
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://github.com/kylecui/petfishFramework/blob/master/LICENSE)
 [![Tests: 448](https://img.shields.io/badge/tests-448-brightgreen.svg)](https://github.com/kylecui/petfishFramework/tree/master/tests/)
 
-**Status: Alpha** — API may change. Core runtime works; see [Roadmap](#roadmap).
+**Status: v1.0 Stable** — Core runtime APIs are frozen. Selected integrations remain experimental; see [API Stability](docs/api-stability.md).
 
 ## Quick Start (Zero Cost — No API Key)
 
@@ -254,11 +254,11 @@ agent = Agent(model=model, reasoning=ReAct(), tools=tools, tool_governance=gover
 
 - **v0.2.x**: Core runtime, permission semantics, enterprise PoC, Trusted Publishing ✅
 - **v0.3.x**: YAML Policy Engine, CredentialBroker ✅
-- **v1.0.x** (current): Production release — API stability freeze, thread safety, exception sanitization, Dockerfile hardening, mypy enforcementdes, Vault adapter, Docker, threat model ✅
+- **v1.0.x** (current): Production release — API stability freeze, thread safety, exception sanitization, Dockerfile hardening, mypy enforcement
 
 ## Current Limitations
 
-petfishFramework is **Alpha**. API may change before v1.0.
+petfishFramework v1.0 has a **stable core runtime** with selected experimental integrations.
 
 | Capability | Status |
 |---|---|
@@ -276,8 +276,36 @@ petfishFramework is **Alpha**. API may change before v1.0.
 | Structured output / conversation memory | ✅ Available |
 | YAML Policy Engine | ✅ Available |
 | Credential Broker | ✅ Available |
-| LATS / LLM+P | ⚠️ Lightweight implementations |
-| CRAG / Adaptive-RAG | ⚠️ Lightweight reference implementations |
+| Tool governance (schema/rate/timeout/retry/idempotency) | ✅ Available |
+| Thread safety (EventEmitter/RateLimiter/IdempotencyStore) | ✅ Available |
+| LATS full MCTS / LLM+P | 🔶 Experimental |
+| CRAG / Adaptive-RAG | 🔶 Lightweight reference implementations |
+| Sandbox subprocess isolation | 🔶 Phase 1 (not a security boundary) |
+
+## API Stability
+
+| Area | Status |
+|---|---|
+| Agent / Session / RuntimeEnvironment | ✅ Stable |
+| DecisionEffect semantics (all 6) | ✅ Stable |
+| Budget / CostAccountant | ✅ Stable |
+| CredentialBroker / ScopedToken | ✅ Stable |
+| YAML Policy Engine | ✅ Stable |
+| AuditReport / EventEmitter | ✅ Stable |
+| SIEMSink (key-based redaction) | ✅ Stable |
+| Tool schema validation / rate limiting | ✅ Stable |
+| MCP client governance (allowlist/pin/risk) | ✅ Stable |
+| Pass^k reliability metric | ✅ Stable |
+| FrameworkConfig | ✅ Stable |
+| MCP server mode | 🔶 Experimental (stdio JSON-RPC MVP) |
+| OTel sink | 🔶 Experimental (optional dep) |
+| Vault adapter | 🔶 Experimental (optional dep) |
+| Deterministic replay / resume | 🔶 Experimental |
+| LATS full MCTS / LLM+P | 🔶 Experimental |
+| CRAG / Adaptive-RAG | 🔶 Lightweight reference |
+| Sandbox executor | 🔶 Phase 1 (process isolation) |
+
+See [API Stability Policy](docs/api-stability.md) for full classification and deprecation process.
 
 ## Development
 

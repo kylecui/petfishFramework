@@ -2,6 +2,28 @@
 
 All notable changes to petfishFramework will be documented in this file.
 
+## [1.0.1] — 2026-07-09
+
+### Product Contract Fix
+
+#### Status Consistency
+- PyPI classifier: `3 - Alpha` → `5 - Production/Stable`
+- README: "Status: Alpha — API may change" → "Status: v1.0 Stable"
+- README: "petfishFramework is Alpha. API may change before v1.0" → stable core messaging
+- Roadmap: typo fixed, version descriptions cleaned
+
+#### Product Narrative
+- README intro: "lightweight Python framework" → "runtime control framework for enterprise AI agents"
+- Product positioning: governance, policy enforcement, audit, credential isolation — not generic orchestration
+
+#### API Stability Documentation
+- New Stable/Experimental status table in README (18 capability areas classified)
+- `docs/api-stability.md` expanded: Semantic Versioning policy, Breaking Change policy, Security Fix policy
+- Clear Stable vs Experimental boundary documented
+
+#### Adoption Guide
+- New `docs/adoption-guide.md`: When to use/not use, 4 integration patterns, Enterprise PoC checklist, Runtime security checklist, Migration from prototype Agent
+
 ## [1.0.0] — 2026-07-09
 
 ### Production Release — API Stability Freeze
