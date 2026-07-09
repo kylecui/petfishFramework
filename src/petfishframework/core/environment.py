@@ -7,8 +7,9 @@ from __future__ import annotations
 
 import asyncio
 import copy
+import threading
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Callable
 
 if TYPE_CHECKING:
     from petfishframework.reliability.timeout import TimeoutPolicy
@@ -20,6 +21,7 @@ from petfishframework.credentials import CredentialBroker
 from petfishframework.permissions.model import (
     AccessContext,
     Action,
+    Decision,
     DecisionEffect,
     PermissionPolicy,
     Resource,
@@ -41,6 +43,14 @@ from .types import (
     ToolResult,
     Usage,
 )
+
+
+class _ExecutionBlocked(Exception):
+    """Raised by _prepare_execution when a pre-execution gate aborts the call."""
+
+    def __init__(self, result: ToolResult) -> None:
+        self.result = result
+        super().__init__("tool execution blocked by pre-execution gate")
 
 
 def _apply_mask_to_dict(data: dict, mask_fields: tuple[str, ...]) -> dict:
@@ -99,6 +109,7 @@ class RuntimeEnvironment(Environment):
     def __post_init__(self) -> None:
         if self._accountant is None:
             self._accountant = CostAccountant()
+        self._state_lock = threading.Lock()
 
     @property
     def model_call_count(self) -> int:
@@ -155,170 +166,16 @@ class RuntimeEnvironment(Environment):
             )
 
         # DEGRADE: don't execute original, execute fallback instead
-        if effect == DecisionEffect.DEGRADE and decision.fallback_tool:
-            fallback = self._find_tool(decision.fallback_tool)
-            if fallback is None:
-                return self._block_tool(
-                    ref, args, f"degrade: fallback tool '{decision.fallback_tool}' not found",
-                    effect, executed=False,
-                )
-            fallback_args = decision.fallback_args if decision.fallback_args is not None else args
-            self._maybe_inject_credential(fallback, fallback_args)
-            result = fallback.execute(fallback_args)
-            self.events.emit(
-                "tool.degraded",
-                {
-                    "original_tool": ref.name,
-                    "fallback_tool": decision.fallback_tool,
-                    "original_executed": False,
-                    "fallback_executed": True,
-                    "effect": effect.value,
-                    "reason": decision.reason or "degraded",
-                    "result_value": result.value if not result.is_error else None,
-                    "result_error": result.error if result.is_error else None,
-                },
-            )
-            self._costs.record_tool_call()
-            self._costs.check_budget(self.budget)
-            return result
-
-        # DEGRADE without fallback → fail-closed: block, do NOT execute original
         if effect == DecisionEffect.DEGRADE:
-            self.events.emit(
-                "tool.degrade_failed",
-                {
-                    "tool_name": ref.name,
-                    "effect": effect.value,
-                    "reason": decision.reason or "degrade: no fallback tool provided",
-                    "executed": False,
-                    "fallback_tool": None,
-                },
-            )
-            return ToolResult(error=f"degrade_failed: {decision.reason or 'no fallback tool provided'}")
-
-        # Pre-execution arg rewriting
-        if effect == DecisionEffect.PARTIAL_ALLOW and decision.allowed_fields is not None:
-            args = {k: v for k, v in args.items() if k in decision.allowed_fields}
-
-        # Gate 1: schema validation (after PARTIAL_ALLOW filter, before MASK input)
-        if self.schema_validator is not None:
-            violations = self.schema_validator.validate(tool.input_schema, args)
-            if violations:
-                self.events.emit(
-                    "tool.schema_violation",
-                    {
-                        "tool_name": ref.name,
-                        "args": args,
-                        "violations": violations,
-                    },
-                )
-                return ToolResult(error=f"schema_violation: {'; '.join(violations)}")
-
-        # Gate 2: idempotency check (before rate limit — cache hit should not consume quota)
-        if self.idempotency_store is not None and getattr(tool, "supports_idempotency_key", False):
-            idem_key = args.get("_idempotency_key")
-            if idem_key is not None:
-                cached = self.idempotency_store.get(idem_key)
-                if cached is not None:
-                    self.events.emit(
-                        "tool.idempotent_cache_hit",
-                        {
-                            "tool_name": ref.name,
-                            "idempotency_key": idem_key,
-                        },
-                    )
-                    return cached
-
-        # Gate 3: rate limiting (after idempotency cache miss, before MASK input)
-        tool_rate_limit = getattr(tool, "rate_limit", None)
-        if self.rate_limiter is not None and tool_rate_limit is not None:
-            if not self.rate_limiter.check(tool.name, tool_rate_limit):
-                self.events.emit(
-                    "tool.rate_limited",
-                    {
-                        "tool_name": ref.name,
-                        "args": args,
-                    },
-                )
-                return ToolResult(error=f"rate_limited: {tool.name}")
-
-        # Pre-execution: input mask (strip/redact sensitive fields from args)
-        if effect == DecisionEffect.MASK and decision.input_mask_fields:
-            args = _apply_mask_to_dict(args, decision.input_mask_fields)
-
-        # Execute tool (ALLOW, PARTIAL_ALLOW, DEGRADE-without-fallback, MASK all execute)
-        import time as _time
-
-        self._maybe_inject_credential(tool, args)
-        start = _time.time()
-
-        def _execute() -> ToolResult:
-            return tool.execute(args)
-
-        execute_fn = _execute
-
-        # Apply retry (only for idempotent tools)
-        tool_retry_policy = getattr(tool, "retry_policy", None)
-        tool_idempotent = getattr(tool, "idempotent", False)
-        if tool_retry_policy is not None and tool_idempotent:
-            from petfishframework.reliability.retry import with_retry
-
-            execute_fn = with_retry(execute_fn, tool_retry_policy)
-
-        # Apply timeout
-        timeout_s: float | None = None
-        if self.timeout_policy is not None:
-            timeout_s = self.timeout_policy.tool_call_timeout_s
-        if timeout_s is not None and timeout_s > 0:
-            from petfishframework.reliability.timeout import with_timeout
-
-            execute_fn = with_timeout(execute_fn, timeout_s)
+            return self._handle_degrade_sync(ref, args, decision)
 
         try:
-            result = execute_fn()
-        except OperationTimedOut:
-            self.events.emit(
-                "tool.timeout",
-                {
-                    "tool_name": ref.name,
-                    "timeout_s": timeout_s,
-                },
-            )
-            result = ToolResult(error=f"timeout after {timeout_s}s")
-        except RetryableError as e:
-            self.events.emit(
-                "tool.retry_exhausted",
-                {
-                    "tool_name": ref.name,
-                    "error": str(e),
-                },
-            )
-            result = ToolResult(error=f"retry_exhausted: {e}")
-        except ToolExecutionError as exc:
-            result = ToolResult(error=str(exc))
-        except AssertionError:
-            raise
-        except Exception:
-            result = ToolResult(error=str(ToolInternalError(ref.name)))
-        duration_ms = (_time.time() - start) * 1000
+            execute_fn, args = self._prepare_execution(tool, args, decision, effect)
+        except _ExecutionBlocked as exc:
+            return exc.result
 
-        # Cache idempotent result
-        if self.idempotency_store is not None and getattr(tool, "supports_idempotency_key", False):
-            idem_key = args.get("_idempotency_key")
-            if idem_key is not None:
-                self.idempotency_store.put(idem_key, result)
-
-        # Post-execution: output mask
-        if effect == DecisionEffect.MASK:
-            if decision.output_mask_fields and isinstance(result.value, dict):
-                result = ToolResult(
-                    value=_apply_mask_to_dict(result.value, decision.output_mask_fields),
-                    masked=True,
-                )
-            else:
-                result = ToolResult(value="[MASKED]", masked=True)
-
-        return self._record_tool_call(ref, args, tool, decision, result, executed=True, duration_ms=duration_ms)
+        result, duration_ms = self._execute_sync(execute_fn, ref, tool)
+        return self._finalize_execution(ref, args, tool, decision, effect, result, duration_ms)
 
     async def call_async(self, ref: ToolRef, args: dict) -> ToolResult:
         """Async version of call with same pre-execution enforcement."""
@@ -336,174 +193,16 @@ class RuntimeEnvironment(Environment):
                 ref, args, decision.reason or "approval required", effect, executed=False
             )
 
-        # DEGRADE: don't execute original, execute fallback instead
-        if effect == DecisionEffect.DEGRADE and decision.fallback_tool:
-            fallback = self._find_tool(decision.fallback_tool)
-            if fallback is None:
-                return self._block_tool(
-                    ref, args,
-                    f"degrade: fallback tool '{decision.fallback_tool}' not found",
-                    effect, executed=False,
-                )
-            fallback_args = decision.fallback_args if decision.fallback_args is not None else args
-            self._maybe_inject_credential(fallback, fallback_args)
-            if asyncio.iscoroutinefunction(fallback.execute):
-                result = await fallback.execute(fallback_args)
-            else:
-                result = fallback.execute(fallback_args)
-            self.events.emit(
-                "tool.degraded",
-                {
-                    "original_tool": ref.name,
-                    "fallback_tool": decision.fallback_tool,
-                    "original_executed": False,
-                    "fallback_executed": True,
-                    "effect": effect.value,
-                    "reason": decision.reason or "degraded",
-                    "result_value": result.value if not result.is_error else None,
-                    "result_error": result.error if result.is_error else None,
-                },
-            )
-            self._costs.record_tool_call()
-            self._costs.check_budget(self.budget)
-            return result
-
-        # DEGRADE without fallback → fail-closed
         if effect == DecisionEffect.DEGRADE:
-            self.events.emit(
-                "tool.degrade_failed",
-                {
-                    "tool_name": ref.name,
-                    "effect": effect.value,
-                    "reason": decision.reason or "degrade: no fallback tool provided",
-                    "executed": False,
-                    "fallback_tool": None,
-                },
-            )
-            return ToolResult(error=f"degrade_failed: {decision.reason or 'no fallback tool provided'}")
-
-        if effect == DecisionEffect.PARTIAL_ALLOW and decision.allowed_fields is not None:
-            args = {k: v for k, v in args.items() if k in decision.allowed_fields}
-
-        # Gate 1: schema validation (after PARTIAL_ALLOW filter, before MASK input)
-        if self.schema_validator is not None:
-            violations = self.schema_validator.validate(tool.input_schema, args)
-            if violations:
-                self.events.emit(
-                    "tool.schema_violation",
-                    {
-                        "tool_name": ref.name,
-                        "args": args,
-                        "violations": violations,
-                    },
-                )
-                return ToolResult(error=f"schema_violation: {'; '.join(violations)}")
-
-        # Gate 2: rate limiting (after schema validation, before MASK input)
-        tool_rate_limit = getattr(tool, "rate_limit", None)
-        if self.rate_limiter is not None and tool_rate_limit is not None:
-            if not self.rate_limiter.check(tool.name, tool_rate_limit):
-                self.events.emit(
-                    "tool.rate_limited",
-                    {
-                        "tool_name": ref.name,
-                        "args": args,
-                    },
-                )
-                return ToolResult(error=f"rate_limited: {tool.name}")
-
-        # Pre-execution: input mask
-        if effect == DecisionEffect.MASK and decision.input_mask_fields:
-            args = _apply_mask_to_dict(args, decision.input_mask_fields)
-
-        # Gate 3: idempotency check (after MASK input, before credential injection)
-        if self.idempotency_store is not None and getattr(tool, "supports_idempotency_key", False):
-            idem_key = args.get("_idempotency_key")
-            if idem_key is not None:
-                cached = self.idempotency_store.get(idem_key)
-                if cached is not None:
-                    self.events.emit(
-                        "tool.idempotent_cache_hit",
-                        {
-                            "tool_name": ref.name,
-                            "idempotency_key": idem_key,
-                        },
-                    )
-                    return cached
-
-        self._maybe_inject_credential(tool, args)
-
-        async def _execute_async() -> ToolResult:
-            if asyncio.iscoroutinefunction(tool.execute):
-                return await tool.execute(args)
-            return tool.execute(args)
-
-        execute_fn = _execute_async
-
-        # Apply retry (only for idempotent tools)
-        tool_retry_policy = getattr(tool, "retry_policy", None)
-        tool_idempotent = getattr(tool, "idempotent", False)
-        if tool_retry_policy is not None and tool_idempotent:
-            from petfishframework.reliability.retry import with_retry_async
-
-            execute_fn = with_retry_async(execute_fn, tool_retry_policy)
-
-        # Apply timeout using asyncio.wait_for for true async cancellation
-        timeout_s: float | None = None
-        if self.timeout_policy is not None:
-            timeout_s = self.timeout_policy.tool_call_timeout_s
-        if timeout_s is not None and timeout_s > 0:
-            original_execute_fn = execute_fn
-
-            async def _with_timeout() -> ToolResult:
-                return await asyncio.wait_for(original_execute_fn(), timeout=timeout_s)
-
-            execute_fn = _with_timeout
+            return await self._handle_degrade_async(ref, args, decision)
 
         try:
-            result = await execute_fn()
-        except asyncio.TimeoutError:
-            self.events.emit(
-                "tool.timeout",
-                {
-                    "tool_name": ref.name,
-                    "timeout_s": timeout_s,
-                },
-            )
-            result = ToolResult(error=f"timeout after {timeout_s}s")
-        except RetryableError as e:
-            self.events.emit(
-                "tool.retry_exhausted",
-                {
-                    "tool_name": ref.name,
-                    "error": str(e),
-                },
-            )
-            result = ToolResult(error=f"retry_exhausted: {e}")
-        except ToolExecutionError as exc:
-            result = ToolResult(error=str(exc))
-        except AssertionError:
-            raise
-        except Exception:
-            result = ToolResult(error=str(ToolInternalError(ref.name)))
+            execute_fn, args = self._prepare_execution(tool, args, decision, effect)
+        except _ExecutionBlocked as exc:
+            return exc.result
 
-        # Cache idempotent result
-        if self.idempotency_store is not None and getattr(tool, "supports_idempotency_key", False):
-            idem_key = args.get("_idempotency_key")
-            if idem_key is not None:
-                self.idempotency_store.put(idem_key, result)
-
-        # Post-execution: output mask
-        if effect == DecisionEffect.MASK:
-            if decision.output_mask_fields and isinstance(result.value, dict):
-                result = ToolResult(
-                    value=_apply_mask_to_dict(result.value, decision.output_mask_fields),
-                    masked=True,
-                )
-            else:
-                result = ToolResult(value="[MASKED]", masked=True)
-
-        return self._record_tool_call(ref, args, tool, decision, result, executed=True)
+        result, duration_ms = await self._execute_async(execute_fn, ref, tool)
+        return self._finalize_execution(ref, args, tool, decision, effect, result, duration_ms)
 
     def retrieve(self, query: str, top_k: int = 5) -> list[Snippet]:
         """Retrieve knowledge snippets (skeleton: empty if no retriever)."""
@@ -541,6 +240,240 @@ class RuntimeEnvironment(Environment):
                 return t
         return None
 
+    def _tool_timeout_s(self) -> float | None:
+        """Return the configured tool-call timeout in seconds, if any."""
+        if self.timeout_policy is None:
+            return None
+        return self.timeout_policy.tool_call_timeout_s
+
+    def _prepare_execution(
+        self,
+        tool: Tool,
+        args: dict,
+        decision: Decision,
+        effect: DecisionEffect,
+    ) -> tuple[Callable[[], ToolResult], dict]:
+        """Apply all pre-execution gates and return the execution closure.
+
+        Returns a base callable that executes the tool with the gated args,
+        plus the final args dict. Callers are responsible for wrapping the
+        callable with timeout/retry policy (sync vs async differs).
+
+        Gate order is identical for both ``call()`` and ``call_async()``:
+        permission (caller), PARTIAL_ALLOW filter, schema validation,
+        idempotency cache, rate limit, MASK input, credential injection.
+        """
+        # Pre-execution arg rewriting
+        if effect == DecisionEffect.PARTIAL_ALLOW and decision.allowed_fields is not None:
+            args = {k: v for k, v in args.items() if k in decision.allowed_fields}
+
+        # Gate 1: schema validation (after PARTIAL_ALLOW filter, before MASK input)
+        if self.schema_validator is not None:
+            violations = self.schema_validator.validate(tool.input_schema, args)
+            if violations:
+                self.events.emit(
+                    "tool.schema_violation",
+                    {
+                        "tool_name": tool.name,
+                        "args": args,
+                        "violations": violations,
+                    },
+                )
+                raise _ExecutionBlocked(ToolResult(error=f"schema_violation: {'; '.join(violations)}"))
+
+        # Gate 2: idempotency check (before rate limit — cache hit should not consume quota)
+        if self.idempotency_store is not None and getattr(tool, "supports_idempotency_key", False):
+            idem_key = args.get("_idempotency_key")
+            if idem_key is not None:
+                cached = self.idempotency_store.get(idem_key)
+                if cached is not None:
+                    self.events.emit(
+                        "tool.idempotent_cache_hit",
+                        {
+                            "tool_name": tool.name,
+                            "idempotency_key": idem_key,
+                        },
+                    )
+                    raise _ExecutionBlocked(cached)
+
+        # Gate 3: rate limiting (after idempotency cache miss, before MASK input)
+        tool_rate_limit = getattr(tool, "rate_limit", None)
+        if self.rate_limiter is not None and tool_rate_limit is not None:
+            if not self.rate_limiter.check(tool.name, tool_rate_limit):
+                self.events.emit(
+                    "tool.rate_limited",
+                    {
+                        "tool_name": tool.name,
+                        "args": args,
+                    },
+                )
+                raise _ExecutionBlocked(ToolResult(error=f"rate_limited: {tool.name}"))
+
+        # Pre-execution: input mask (strip/redact sensitive fields from args)
+        if effect == DecisionEffect.MASK and decision.input_mask_fields:
+            args = _apply_mask_to_dict(args, decision.input_mask_fields)
+
+        # Credential injection
+        self._maybe_inject_credential(tool, args)
+
+        def _execute() -> ToolResult:
+            return tool.execute(args)
+
+        return _execute, args
+
+    def _wrap_sync_execution(
+        self, execute_fn: Callable[[], ToolResult], tool: Tool
+    ) -> Callable[[], ToolResult]:
+        """Apply retry and timeout wrappers for the synchronous path."""
+        # Apply retry (only for idempotent tools)
+        tool_retry_policy = getattr(tool, "retry_policy", None)
+        tool_idempotent = getattr(tool, "idempotent", False)
+        if tool_retry_policy is not None and tool_idempotent:
+            from petfishframework.reliability.retry import with_retry
+
+            execute_fn = with_retry(execute_fn, tool_retry_policy)
+
+        # Apply timeout
+        timeout_s = self._tool_timeout_s()
+        if timeout_s is not None and timeout_s > 0:
+            from petfishframework.reliability.timeout import with_timeout
+
+            execute_fn = with_timeout(execute_fn, timeout_s)
+
+        return execute_fn
+
+    def _execute_sync(
+        self, execute_fn: Callable[[], ToolResult], ref: ToolRef, tool: Tool
+    ) -> tuple[ToolResult, float]:
+        """Run the wrapped sync execution closure and translate errors."""
+        import time as _time
+
+        start = _time.time()
+        execute_fn = self._wrap_sync_execution(execute_fn, tool)
+
+        try:
+            result = execute_fn()
+        except OperationTimedOut:
+            timeout_s = self._tool_timeout_s()
+            self.events.emit(
+                "tool.timeout",
+                {
+                    "tool_name": ref.name,
+                    "timeout_s": timeout_s,
+                },
+            )
+            result = ToolResult(error=f"timeout after {timeout_s}s")
+        except RetryableError as e:
+            self.events.emit(
+                "tool.retry_exhausted",
+                {
+                    "tool_name": ref.name,
+                    "error": str(e),
+                },
+            )
+            result = ToolResult(error=f"retry_exhausted: {e}")
+        except ToolExecutionError as exc:
+            result = ToolResult(error=str(exc))
+        except AssertionError:
+            raise
+        except Exception:
+            result = ToolResult(error=str(ToolInternalError(ref.name)))
+
+        duration_ms = (_time.time() - start) * 1000
+        return result, duration_ms
+
+    async def _execute_async(
+        self, execute_fn: Callable[[], ToolResult], ref: ToolRef, tool: Tool
+    ) -> tuple[ToolResult, float]:
+        """Run the wrapped async execution closure and translate errors."""
+        import time as _time
+
+        start = _time.time()
+
+        async def _async_execute() -> ToolResult:
+            return execute_fn()
+
+        async_runner = _async_execute
+
+        # Apply retry (only for idempotent tools)
+        tool_retry_policy = getattr(tool, "retry_policy", None)
+        tool_idempotent = getattr(tool, "idempotent", False)
+        if tool_retry_policy is not None and tool_idempotent:
+            from petfishframework.reliability.retry import with_retry_async
+
+            async_runner = with_retry_async(async_runner, tool_retry_policy)
+
+        # Apply timeout using asyncio.wait_for for true async cancellation
+        timeout_s = self._tool_timeout_s()
+        if timeout_s is not None and timeout_s > 0:
+            original_execute_fn = async_runner
+
+            async def _with_timeout() -> ToolResult:
+                return await asyncio.wait_for(original_execute_fn(), timeout=timeout_s)
+
+            async_runner = _with_timeout
+
+        try:
+            result = await async_runner()
+        except asyncio.TimeoutError:
+            self.events.emit(
+                "tool.timeout",
+                {
+                    "tool_name": ref.name,
+                    "timeout_s": timeout_s,
+                },
+            )
+            result = ToolResult(error=f"timeout after {timeout_s}s")
+        except RetryableError as e:
+            self.events.emit(
+                "tool.retry_exhausted",
+                {
+                    "tool_name": ref.name,
+                    "error": str(e),
+                },
+            )
+            result = ToolResult(error=f"retry_exhausted: {e}")
+        except ToolExecutionError as exc:
+            result = ToolResult(error=str(exc))
+        except AssertionError:
+            raise
+        except Exception:
+            result = ToolResult(error=str(ToolInternalError(ref.name)))
+
+        duration_ms = (_time.time() - start) * 1000
+        return result, duration_ms
+
+    def _finalize_execution(
+        self,
+        ref: ToolRef,
+        args: dict,
+        tool: Tool,
+        decision: Decision,
+        effect: DecisionEffect,
+        result: ToolResult,
+        duration_ms: float,
+    ) -> ToolResult:
+        """Cache idempotent results, apply output masks, and record the call."""
+        # Cache idempotent result
+        if self.idempotency_store is not None and getattr(tool, "supports_idempotency_key", False):
+            idem_key = args.get("_idempotency_key")
+            if idem_key is not None:
+                self.idempotency_store.put(idem_key, result)
+
+        # Post-execution: output mask
+        if effect == DecisionEffect.MASK:
+            if decision.output_mask_fields and isinstance(result.value, dict):
+                result = ToolResult(
+                    value=_apply_mask_to_dict(result.value, decision.output_mask_fields),
+                    masked=True,
+                )
+            else:
+                result = ToolResult(value="[MASKED]", masked=True)
+
+        return self._record_tool_call(
+            ref, args, tool, decision, result, executed=True, duration_ms=duration_ms
+        )
+
     def _maybe_inject_credential(self, tool: Tool, args: dict) -> None:
         """Issue and inject a scoped credential token when a tool requires one.
 
@@ -559,7 +492,104 @@ class RuntimeEnvironment(Environment):
         )
         args["_credential_token"] = token
 
-    def _prepare_tool_call(self, ref: ToolRef, args: dict) -> tuple[Tool | None, Any]:
+    def _handle_degrade_sync(self, ref: ToolRef, args: dict, decision: Decision) -> ToolResult:
+        """Execute the fallback tool for a DEGRADE decision (sync path)."""
+        effect = DecisionEffect.DEGRADE
+        if not decision.fallback_tool:
+            self.events.emit(
+                "tool.degrade_failed",
+                {
+                    "tool_name": ref.name,
+                    "effect": effect.value,
+                    "reason": decision.reason or "degrade: no fallback tool provided",
+                    "executed": False,
+                    "fallback_tool": None,
+                },
+            )
+            return ToolResult(error=f"degrade_failed: {decision.reason or 'no fallback tool provided'}")
+
+        fallback = self._find_tool(decision.fallback_tool)
+        if fallback is None:
+            return self._block_tool(
+                ref,
+                args,
+                f"degrade: fallback tool '{decision.fallback_tool}' not found",
+                effect,
+                executed=False,
+            )
+
+        fallback_args = decision.fallback_args if decision.fallback_args is not None else args
+        self._maybe_inject_credential(fallback, fallback_args)
+        result = fallback.execute(fallback_args)
+        self.events.emit(
+            "tool.degraded",
+            {
+                "original_tool": ref.name,
+                "fallback_tool": decision.fallback_tool,
+                "original_executed": False,
+                "fallback_executed": True,
+                "effect": effect.value,
+                "reason": decision.reason or "degraded",
+                "result_value": result.value if not result.is_error else None,
+                "result_error": result.error if result.is_error else None,
+            },
+        )
+        with self._state_lock:
+            self._costs.record_tool_call()
+            self._costs.check_budget(self.budget)
+        return result
+
+    async def _handle_degrade_async(self, ref: ToolRef, args: dict, decision: Decision) -> ToolResult:
+        """Execute the fallback tool for a DEGRADE decision (async path)."""
+        effect = DecisionEffect.DEGRADE
+        if not decision.fallback_tool:
+            self.events.emit(
+                "tool.degrade_failed",
+                {
+                    "tool_name": ref.name,
+                    "effect": effect.value,
+                    "reason": decision.reason or "degrade: no fallback tool provided",
+                    "executed": False,
+                    "fallback_tool": None,
+                },
+            )
+            return ToolResult(error=f"degrade_failed: {decision.reason or 'no fallback tool provided'}")
+
+        fallback = self._find_tool(decision.fallback_tool)
+        if fallback is None:
+            return self._block_tool(
+                ref,
+                args,
+                f"degrade: fallback tool '{decision.fallback_tool}' not found",
+                effect,
+                executed=False,
+            )
+
+        fallback_args = decision.fallback_args if decision.fallback_args is not None else args
+        self._maybe_inject_credential(fallback, fallback_args)
+        if asyncio.iscoroutinefunction(fallback.execute):
+            result = await fallback.execute(fallback_args)
+        else:
+            result = fallback.execute(fallback_args)
+        self.events.emit(
+            "tool.degraded",
+            {
+                "original_tool": ref.name,
+                "fallback_tool": decision.fallback_tool,
+                "original_executed": False,
+                "fallback_executed": True,
+                "effect": effect.value,
+                "reason": decision.reason or "degraded",
+                "result_value": result.value if not result.is_error else None,
+                "result_error": result.error if result.is_error else None,
+            },
+        )
+        with self._state_lock:
+            self._costs.record_tool_call()
+            self._costs.check_budget(self.budget)
+        return result
+
+    def _prepare_tool_call(self, ref: ToolRef, args: dict) -> tuple[Tool | None, Decision]:
         """Permission gate for tool calls; shared by sync and async paths."""
         tool = self._find_tool(ref.name)
 
@@ -606,7 +636,7 @@ class RuntimeEnvironment(Environment):
         ref: ToolRef,
         args: dict,
         tool: Tool,
-        decision: Any,
+        decision: Decision,
         result: ToolResult,
         *,
         executed: bool = True,
@@ -623,7 +653,7 @@ class RuntimeEnvironment(Environment):
         event_type = event_map.get(effect, "tool.called")
 
         # Build event data, applying event_mask_fields if present
-        event_data = {
+        event_data: dict[str, Any] = {
             "tool_name": ref.name,
             "args": args,
             "effect": effect.value,
@@ -658,8 +688,9 @@ class RuntimeEnvironment(Environment):
 
         self.events.emit(event_type, event_data)
 
-        self._costs.record_tool_call()
-        self._costs.check_budget(self.budget)
+        with self._state_lock:
+            self._costs.record_tool_call()
+            self._costs.check_budget(self.budget)
         return result
 
     def _fetch_snippets(self, query: str, top_k: int) -> list[Snippet]:
@@ -700,7 +731,8 @@ class RuntimeEnvironment(Environment):
 
     def _finalize_query_model(self, request: ModelRequest, response: ModelResponse) -> ModelResponse:
         """Emit model.called, accumulate usage, and enforce budget."""
-        self._model_calls += 1
+        with self._state_lock:
+            self._model_calls += 1
         self.events.emit(
             "model.called",
             {
@@ -715,6 +747,7 @@ class RuntimeEnvironment(Environment):
             },
         )
 
-        self._costs.record(response.usage)
-        self._costs.check_budget(self.budget)
+        with self._state_lock:
+            self._costs.record(response.usage)
+            self._costs.check_budget(self.budget)
         return response

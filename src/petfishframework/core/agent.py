@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field, fields
-from typing import Any, TypeVar
+from typing import Any, TypeVar, cast
 
 from petfishframework.core.contracts import ModelAdapter, ReasoningStrategy, Retriever, Tool
 from petfishframework.core.conversation import ConversationStore
@@ -171,7 +171,7 @@ class Agent:
 
         events = EventEmitter()
         return Session(
-            model=self.model,
+            model=cast(ModelAdapter, self.model),
             reasoning=self.reasoning,
             tools=resolved_tools,
             retriever=self.retriever,

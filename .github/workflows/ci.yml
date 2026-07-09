@@ -5,6 +5,9 @@ on:
     branches: [master, main]
   pull_request:
     branches: [master, main]
+  schedule:
+    - cron: "0 6 * * *"
+  workflow_dispatch:
 
 jobs:
   test:
@@ -28,9 +31,32 @@ jobs:
       - name: Lint with ruff
         run: uv run ruff check src/ tests/
 
+      - name: Type check
+        run: uv run mypy src/petfishframework
+
       - name: Run tests
-        run: uv run pytest tests/ -q --tb=short
-        # Integration tests are skipped automatically (no API key in CI)
+        run: uv run pytest tests/ -q --tb=short -m "not integration"
+
+  integration:
+    runs-on: ubuntu-latest
+    needs: test
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: pip install uv && uv sync --all-extras
+
+      - name: Run integration tests
+        run: uv run pytest tests/ -m integration -v --tb=short
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
 
   docker-smoke:
     runs-on: ubuntu-latest

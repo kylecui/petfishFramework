@@ -9,7 +9,7 @@ import asyncio
 import random
 import time
 from dataclasses import dataclass, field
-from typing import Awaitable, Callable, TypeVar
+from typing import Any, Callable, Coroutine, TypeVar
 
 from petfishframework.core.contracts import ModelAdapter
 from petfishframework.core.types import ModelRequest, ModelResponse
@@ -107,10 +107,10 @@ def with_retry(
 
 
 def with_retry_async(
-    fn: Callable[[], Awaitable[T]],
+    fn: Callable[[], Coroutine[Any, Any, T]],
     policy: RetryPolicy,
     attempts_log: list[Exception] | None = None,
-) -> Callable[[], Awaitable[T]]:
+) -> Callable[[], Coroutine[Any, Any, T]]:
     """Wrap an asynchronous callable with retry logic.
 
     Identical semantics to ``with_retry`` but uses ``asyncio.sleep``.
@@ -182,7 +182,7 @@ class RetryModelAdapter(ModelAdapter):
             self.last_error = attempts[-1]
         return response
 
-    def query_async(self, request: ModelRequest) -> Awaitable[ModelResponse]:
+    def query_async(self, request: ModelRequest) -> Coroutine[Any, Any, ModelResponse]:
         """Async query the inner model, retrying according to policy.
 
         Detects an async inner ``query`` via ``asyncio.iscoroutinefunction``

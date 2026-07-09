@@ -144,13 +144,20 @@ def _build_tools(transport: Any) -> dict[str, MCPToolSpec]:
         capabilities = tool_def.get("capabilities", [])
         if not isinstance(capabilities, tuple):
             capabilities = tuple(capabilities)
+
+        def _make_call_fn(
+            tool_name: str,
+        ) -> Callable[[dict[str, Any]], Any]:
+            def _call_fn(arguments: dict[str, Any]) -> Any:
+                return transport.call_tool(tool_name, arguments)
+
+            return _call_fn
+
         tools[name] = MCPToolSpec(
             name=name,
             description=tool_def.get("description", ""),
             input_schema=tool_def.get("inputSchema", {}),
-            call_fn=lambda arguments, tool_name=name: transport.call_tool(
-                tool_name, arguments
-            ),
+            call_fn=_make_call_fn(name),
             capabilities=capabilities,
         )
     return tools
