@@ -10,6 +10,7 @@ from dataclasses import dataclass, field
 from typing import Any, Callable
 
 from petfishframework.core.contracts import RiskLevel
+from petfishframework.core.errors import ToolInternalError
 from petfishframework.core.types import ToolResult
 
 
@@ -38,6 +39,8 @@ class MCPToolWrapper:
         """
         try:
             value = self.call_fn(args)
-        except Exception as exc:  # noqa: BLE001
-            return ToolResult(error=str(exc))
+        except AssertionError:
+            raise
+        except Exception:  # noqa: BLE001
+            return ToolResult(error=str(ToolInternalError(self.name)))
         return ToolResult(value=value)

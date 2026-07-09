@@ -8,29 +8,73 @@ from __future__ import annotations
 from .config import FrameworkConfig
 from .core.agent import Agent
 from .core.contracts import Tool
-from .core.types import Budget, BudgetExceeded, Result, Task
-from .permissions.model import DecisionEffect
+from .core.environment import RuntimeEnvironment
+from .core.events import Event, EventEmitter
+from .core.session import Session
+from .core.types import Budget, BudgetExceeded, Result, Step, Task, Trajectory, Usage
+from .credentials.broker import CredentialBroker
+from .credentials.token import ScopedToken
+from .models.fake import FakeModel
+from .permissions.model import (
+    AccessContext,
+    Action,
+    Decision,
+    DecisionEffect,
+    DefaultAllowPolicy,
+    DenyByDefaultPolicy,
+    PermissionPolicy,
+    Resource,
+    Subject,
+)
 from .policies import PolicyRule, YamlPolicy
 from .reasoning import LATS, LLMPlusP, ReAct
+from .reliability.audit_report import AuditReport, audit_report_from_session
+from .reliability.pass_at_k import pass_at_k
 from .reliability.replay import ReplayMode
-from .tools.base import BaseTool
+from .tools.base import BaseTool, tool
+from .tools.calculator import Calculator
+from .tools.word_sorter import WordSorter
 
 __version__ = "0.5.2"
 
 __all__ = [
+    "AccessContext",
+    "Action",
     "Agent",
+    "AuditReport",
     "BaseTool",
     "Budget",
     "BudgetExceeded",
+    "Calculator",
+    "CredentialBroker",
+    "Decision",
     "DecisionEffect",
+    "DefaultAllowPolicy",
+    "DenyByDefaultPolicy",
+    "Event",
+    "EventEmitter",
+    "FakeModel",
     "FrameworkConfig",
     "LATS",
     "LLMPlusP",
+    "PermissionPolicy",
     "PolicyRule",
     "ReAct",
     "ReplayMode",
-    "YamlPolicy",
+    "Resource",
     "Result",
+    "RuntimeEnvironment",
+    "ScopedToken",
+    "Session",
+    "Step",
+    "Subject",
     "Task",
     "Tool",
+    "Trajectory",
+    "Usage",
+    "WordSorter",
+    "YamlPolicy",
+    "audit_report_from_session",
+    "pass_at_k",
+    "tool",
 ]

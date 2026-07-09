@@ -11,6 +11,7 @@ structural rather than bolted-on.
 """
 from __future__ import annotations
 
+import threading
 import time
 import uuid
 from dataclasses import dataclass, field
@@ -38,11 +39,18 @@ class EventEmitter:
 
     Events are immutable once emitted. Sinks (observability/, audit, metrics)
     subscribe and receive every event without affecting the log.
+
+    Thread-safe: ``_events`` and ``_sinks`` are protected by ``threading.Lock``.
+    Sink callbacks are invoked *outside* the lock to avoid deadlocks if a sink
+    re-enters the emitter. Sink failures are counted and exposed via
+    ``sink_error_count`` without breaking the event log.
     """
 
     def __init__(self) -> None:
         self._events: list[Event] = []
         self._sinks: list[Callable[[Event], None]] = []
+        self._lock = threading.Lock()
+        self._sink_error_count = 0
 
     def emit(self, type: str, data: dict[str, Any] | None = None, determinism: str = "RECORDED") -> Event:
         """Record an event and notify all sinks."""
@@ -52,28 +60,48 @@ class EventEmitter:
             data=data or {},
             determinism=determinism,
         )
-        self._events.append(event)
-        for sink in self._sinks:
+        with self._lock:
+            self._events.append(event)
+            # Copy sink list so we can call them without holding the lock.
+            sinks = list(self._sinks)
+
+        for sink in sinks:
             try:
                 sink(event)
             except Exception:
-                # Sink failures must NOT break the event log (agentShield P0-9 principle)
-                pass
+                # Sink failures must NOT break the event log (agentShield P0-9 principle),
+                # but they are no longer silently swallowed.
+                with self._lock:
+                    self._sink_error_count += 1
         return event
 
     def subscribe(self, sink: Callable[[Event], None]) -> None:
         """Register a sink that receives every emitted event."""
-        self._sinks.append(sink)
+        with self._lock:
+            self._sinks.append(sink)
 
     @property
     def events(self) -> tuple[Event, ...]:
         """Immutable snapshot of all recorded events."""
-        return tuple(self._events)
+        with self._lock:
+            return tuple(self._events)
 
     def events_of(self, type: str) -> tuple[Event, ...]:
         """Filter events by type."""
-        return tuple(e for e in self._events if e.type == type)
+        with self._lock:
+            return tuple(e for e in self._events if e.type == type)
+
+    @property
+    def sink_error_count(self) -> int:
+        """Number of sink callbacks that raised an exception.
+
+        This counter gives observability into silent sink failures without
+        emitting a recursive error event.
+        """
+        with self._lock:
+            return self._sink_error_count
 
     def clear(self) -> None:
         """Reset the log. Used for testing only."""
-        self._events.clear()
+        with self._lock:
+            self._events.clear()

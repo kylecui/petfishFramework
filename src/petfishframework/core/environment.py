@@ -30,6 +30,7 @@ from petfishframework.reliability.retry import RetryableError
 from petfishframework.reliability.timeout import OperationTimedOut
 
 from .contracts import Environment, ModelAdapter, Retriever, Tool
+from .errors import ToolExecutionError, ToolInternalError
 from .events import EventEmitter
 from .types import (
     Budget,
@@ -293,8 +294,12 @@ class RuntimeEnvironment(Environment):
                 },
             )
             result = ToolResult(error=f"retry_exhausted: {e}")
-        except Exception as exc:
+        except ToolExecutionError as exc:
             result = ToolResult(error=str(exc))
+        except AssertionError:
+            raise
+        except Exception:
+            result = ToolResult(error=str(ToolInternalError(ref.name)))
         duration_ms = (_time.time() - start) * 1000
 
         # Cache idempotent result
@@ -475,8 +480,12 @@ class RuntimeEnvironment(Environment):
                 },
             )
             result = ToolResult(error=f"retry_exhausted: {e}")
-        except Exception as exc:
+        except ToolExecutionError as exc:
             result = ToolResult(error=str(exc))
+        except AssertionError:
+            raise
+        except Exception:
+            result = ToolResult(error=str(ToolInternalError(ref.name)))
 
         # Cache idempotent result
         if self.idempotency_store is not None and getattr(tool, "supports_idempotency_key", False):

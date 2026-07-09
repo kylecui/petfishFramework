@@ -142,7 +142,8 @@ class TestRuntimeErrors:
         called = [event for event in sink.events if event.type == "tool.called"]
         assert len(called) == 1
         assert called[0].data["result_error"] is not None
-        assert "intentional failure" in called[0].data["result_error"]
+        assert "internal_error" in called[0].data["result_error"]
+        assert "intentional failure" not in called[0].data["result_error"]
         assert result.answer == "after error"
 
     def test_empty_tools_list(self) -> None:

@@ -1,6 +1,7 @@
 """Standalone tests for the sliding-window per-tool rate limiter."""
 from __future__ import annotations
 
+import threading
 import time
 
 from petfishframework.tools.rate_limiter import RateLimiter, RateLimitPolicy
@@ -81,3 +82,28 @@ def test_reset_clears_counter() -> None:
 
     assert limiter.check("tool_a", policy) is True
     assert limiter.remaining("tool_b", policy) == 1
+
+
+def test_concurrent_check_no_corruption() -> None:
+    """Many threads checking the same tool concurrently must not corrupt state."""
+    limiter = RateLimiter()
+    policy = RateLimitPolicy(max_calls=100, window_s=60.0)
+    errors: list[Exception] = []
+
+    def check_many() -> None:
+        try:
+            for _ in range(10):
+                limiter.check("calculator", policy)
+        except Exception as exc:  # noqa: BLE001
+            errors.append(exc)
+
+    threads = [threading.Thread(target=check_many) for _ in range(10)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+    assert not errors
+    # Exactly 100 calls were recorded (each thread made 10 calls, 10 threads).
+    assert limiter.remaining("calculator", policy) == 0
+

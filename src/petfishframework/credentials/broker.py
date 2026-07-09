@@ -62,11 +62,32 @@ class CredentialBroker:
         return token
 
     def validate_token(self, token_id: str) -> bool:
-        """Check if a token is valid."""
+        """Check if a token is valid and consume one use.
+
+        This is the enforcement entrypoint used before allowing a token to be
+        used. It both validates expiry and decrements remaining uses.
+        """
         token = self._active_tokens.get(token_id)
         if token is None:
             return False
-        return token.is_valid()
+        if not token.is_valid():
+            return False
+        return token.use()
+
+    def check_token(self, token_id: str) -> bool:
+        """Check if a token is usable without consuming a use.
+
+        Reports whether the token is both unexpired and has remaining uses.
+        Use this for read-only checks (e.g. UI state, logging, or audits).
+        Actual authorization should call :meth:`validate_token`.
+        """
+        token = self._active_tokens.get(token_id)
+        if token is None:
+            return False
+        if not token.is_valid():
+            return False
+        remaining = token.uses_remaining
+        return remaining is None or remaining > 0
 
     def revoke_token(self, token_id: str) -> None:
         """Revoke a token immediately."""

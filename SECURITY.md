@@ -4,9 +4,9 @@
 
 | Version | Supported              |
 |---------|------------------------|
-| 0.4.x   | ✅ Active development   |
-| 0.3.x   | ⚠️ Security fixes only  |
-| < 0.3   | ❌ Not supported         |
+| 1.0.x   | ✅ Active development   |
+| 0.5.x   | ⚠️ Security fixes only  |
+| < 0.5   | ❌ Not supported         |
 
 ## Reporting a Vulnerability
 

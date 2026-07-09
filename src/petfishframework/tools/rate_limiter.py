@@ -6,6 +6,7 @@ Environment.call().
 """
 from __future__ import annotations
 
+import threading
 import time
 from collections import deque
 from dataclasses import dataclass, field
@@ -30,9 +31,12 @@ class RateLimiter:
 
     Tracks call timestamps per tool name. When a tool exceeds its limit,
     check() returns False (call should be blocked).
+
+    Thread-safe: ``_timestamps`` is protected by ``threading.Lock``.
     """
 
     _timestamps: dict[str, deque[float]] = field(default_factory=dict, repr=False)
+    _lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
 
     def check(self, tool_name: str, policy: RateLimitPolicy) -> bool:
         """Check if a call to tool_name is allowed under policy.
@@ -42,33 +46,36 @@ class RateLimiter:
         """
         now = time.monotonic()
         cutoff = now - policy.window_s
-        queue = self._timestamps.setdefault(tool_name, deque())
+        with self._lock:
+            queue = self._timestamps.setdefault(tool_name, deque())
 
-        # Drop timestamps that have fallen outside the sliding window.
-        while queue and queue[0] < cutoff:
-            queue.popleft()
+            # Drop timestamps that have fallen outside the sliding window.
+            while queue and queue[0] < cutoff:
+                queue.popleft()
 
-        if len(queue) >= policy.max_calls:
-            return False
+            if len(queue) >= policy.max_calls:
+                return False
 
-        queue.append(now)
-        return True
+            queue.append(now)
+            return True
 
     def remaining(self, tool_name: str, policy: RateLimitPolicy) -> int:
         """How many more calls are allowed in the current window."""
         now = time.monotonic()
         cutoff = now - policy.window_s
-        queue = self._timestamps.get(tool_name, deque())
+        with self._lock:
+            queue = self._timestamps.get(tool_name, deque())
 
-        # Drop stale timestamps before counting.
-        while queue and queue[0] < cutoff:
-            queue.popleft()
+            # Drop stale timestamps before counting.
+            while queue and queue[0] < cutoff:
+                queue.popleft()
 
-        return max(0, policy.max_calls - len(queue))
+            return max(0, policy.max_calls - len(queue))
 
     def reset(self, tool_name: str | None = None) -> None:
         """Reset counter for a specific tool, or all tools if None."""
-        if tool_name is None:
-            self._timestamps.clear()
-        else:
-            self._timestamps.pop(tool_name, None)
+        with self._lock:
+            if tool_name is None:
+                self._timestamps.clear()
+            else:
+                self._timestamps.pop(tool_name, None)

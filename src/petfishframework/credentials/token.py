@@ -3,21 +3,37 @@ from __future__ import annotations
 
 import time
 from dataclasses import dataclass, field
+from typing import Any
 
 
 @dataclass
 class ScopedToken:
     """A time-limited, tool-scoped credential token.
 
-    The actual secret is stored internally and NEVER exposed via repr/str.
+    The actual secret is stored internally with name mangling and is NEVER
+    exposed via repr/str. Use :meth:`get_secret` after validating expiry and
+    remaining uses.
     """
 
     token_id: str          # unique ID
     tool_name: str         # which tool this token is for
     expires_at: float      # unix timestamp
     max_uses: int = 0      # 0 = unlimited uses
-    _secret: str = field(default="", repr=False, compare=False)  # hidden from repr
+    _secret: str = field(default="", repr=False, compare=False)
     _uses: int = field(default=0, repr=False)
+
+    def __post_init__(self) -> None:
+        # Move the secret to a name-mangled attribute so it cannot be read
+        # directly via token._secret or token.__secret from outside the class.
+        secret = object.__getattribute__(self, "_secret")
+        object.__setattr__(self, f"_{self.__class__.__name__}__secret", secret)
+        object.__delattr__(self, "_secret")
+
+    def __getattribute__(self, name: str) -> Any:
+        # Block direct reads of the constructor-only _secret field.
+        if name == "_secret":
+            raise AttributeError("Use get_secret() to read the secret")
+        return object.__getattribute__(self, name)
 
     def is_valid(self) -> bool:
         """Check if token is still valid (not expired)."""
@@ -46,7 +62,7 @@ class ScopedToken:
             raise ValueError("Token expired")
         if not self.use():
             raise ValueError("Token exceeded max uses")
-        return self._secret
+        return object.__getattribute__(self, "_ScopedToken__secret")
 
     def __repr__(self) -> str:
         return (

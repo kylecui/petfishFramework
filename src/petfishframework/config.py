@@ -63,6 +63,14 @@ class FrameworkConfig:
     retry_policy: RetryPolicy | None = None
     timeout_s: float = 30.0
 
+    def __post_init__(self) -> None:
+        if self.timeout_s <= 0:
+            raise ValueError("timeout_s must be positive")
+        if self.default_temperature < 0 or self.default_temperature > 2:
+            raise ValueError("temperature must be 0-2")
+        if self.default_max_tokens is not None and self.default_max_tokens < 0:
+            raise ValueError("default_max_tokens must be non-negative")
+
     @classmethod
     def from_env(cls) -> FrameworkConfig:
         """Build a config from environment variables.

@@ -52,9 +52,37 @@ class ToolSchemaValidator:
 
         if self._jsonschema is not None:
             validator = self._jsonschema.Draft202012Validator(schema)
-            return [str(error) for error in validator.iter_errors(args)]
+            return [self._sanitize_error(e) for e in validator.iter_errors(args)]
 
         return self._validate_builtin(schema, args, path="")
+
+    @staticmethod
+    def _sanitize_error(error: Any) -> str:
+        """Convert a jsonschema ValidationError to a safe message.
+
+        Produces a short message describing the violation type and path,
+        WITHOUT echoing the actual invalid value (which may contain secrets).
+        """
+        path = ".".join(str(p) for p in error.absolute_path) or "root"
+        validator = getattr(error, "validator", "unknown")
+        expected = error.schema.get(error.validator) if error.validator else None
+        if validator == "type" and expected is not None:
+            return f"field '{path}': expected type '{expected}', got '{type(error.instance).__name__}'"
+        if validator == "required":
+            return f"field '{path}': missing required property"
+        if validator == "additionalProperties":
+            extra = error.message.split("'") if "'" in error.message else []
+            names = [
+                w for w in extra
+                if w and not w.startswith(" ")
+                and w not in ("is", "are", "not", "allowed")
+            ]
+            if names:
+                return f"field '{path}': additional properties not allowed: {names}"
+            return f"field '{path}': additional properties not allowed"
+        if validator == "enum":
+            return f"field '{path}': value not in allowed enum"
+        return f"field '{path}': validation failed ({validator})"
 
     def validate_or_raise(self, schema: dict[str, Any], args: dict[str, Any]) -> None:
         """Validate ``args`` against ``schema`` and raise if invalid."""

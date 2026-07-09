@@ -12,6 +12,7 @@ from typing import Any, TextIO
 
 from petfishframework import __version__
 from petfishframework.core.contracts import Tool
+from petfishframework.core.errors import ToolInternalError
 from petfishframework.core.types import ToolResult
 
 
@@ -99,8 +100,10 @@ def serve_as_mcp(
 
         try:
             result = tool.execute(arguments)
-        except Exception as exc:  # noqa: BLE001
-            result = ToolResult(error=str(exc))
+        except AssertionError:
+            raise
+        except Exception:  # noqa: BLE001
+            result = ToolResult(error=str(ToolInternalError(tool_name)))
 
         if result.is_error:
             text = result.error or "unknown error"

@@ -14,11 +14,13 @@ from __future__ import annotations
 
 import multiprocessing
 import os
+import queue
 import tempfile
 from dataclasses import dataclass
 from typing import Any
 
 from petfishframework.core.contracts import Tool
+from petfishframework.core.errors import ToolInternalError
 from petfishframework.core.types import ToolResult
 
 
@@ -47,8 +49,10 @@ def _child_runner(
 
     try:
         result = tool.execute(args)
-    except Exception as exc:  # noqa: BLE001
-        result = ToolResult(error=str(exc))
+    except AssertionError:
+        raise
+    except Exception:  # noqa: BLE001
+        result = ToolResult(error=str(ToolInternalError(tool.name)))
 
     result_queue.put(result)
 
@@ -105,14 +109,14 @@ class SandboxExecutor:
                 # Drain any late result so the queue can be garbage collected.
                 try:
                     result_queue.get(timeout=0.5)
-                except Exception:  # noqa: BLE001
+                except queue.Empty:
                     pass
                 return ToolResult(error="timeout")
 
             try:
                 result = result_queue.get(timeout=1.0)
-            except Exception as exc:  # noqa: BLE001
-                return ToolResult(error=f"no result from sandbox: {exc}")
+            except queue.Empty:
+                return ToolResult(error="no result from sandbox")
 
             if not isinstance(result, ToolResult):
                 return ToolResult(value=result)

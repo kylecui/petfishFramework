@@ -32,7 +32,7 @@ def test_mcp_tool_wrapper_error() -> None:
     """A failing call_fn is surfaced as a ToolResult error, not a raised exception."""
 
     def boom(args: dict) -> None:  # noqa: ARG001
-        raise ValueError("boom")
+        raise ValueError("raw exception text")
 
     wrapper = MCPToolWrapper(
         name="boom",
@@ -44,7 +44,8 @@ def test_mcp_tool_wrapper_error() -> None:
     result = wrapper.execute({})
 
     assert result.is_error
-    assert "boom" in (result.error or "")
+    assert "internal_error" in (result.error or "")
+    assert "raw exception text" not in (result.error or "")
 
 
 def test_mcp_discover_tools() -> None:

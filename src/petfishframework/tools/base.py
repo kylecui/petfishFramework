@@ -9,6 +9,7 @@ from dataclasses import dataclass, field
 from typing import Any, Callable
 
 from petfishframework.core.contracts import RiskLevel
+from petfishframework.core.errors import ToolInternalError
 from petfishframework.core.types import ToolResult
 from petfishframework.reliability.retry import RetryPolicy
 from petfishframework.tools.rate_limiter import RateLimitPolicy
@@ -70,8 +71,10 @@ def tool(
             try:
                 value = func(**args)
                 return ToolResult(value=value)
-            except Exception as exc:  # noqa: BLE001
-                return ToolResult(error=str(exc))
+            except AssertionError:
+                raise
+            except Exception:  # noqa: BLE001
+                return ToolResult(error=str(ToolInternalError(name)))
 
         return BaseTool(
             name=name,

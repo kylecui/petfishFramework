@@ -25,6 +25,14 @@ from .contracts import (
     Tool,
 )
 from .conversation import ConversationStore, InMemoryConversationStore
+from .errors import (
+    ToolExecutionError,
+    ToolInternalError,
+    ToolRateLimitError,
+    ToolRetryExhaustedError,
+    ToolSchemaError,
+    ToolTimeoutError,
+)
 from .events import Event, EventEmitter
 from .structured import StructuredResult, parse_json, parse_structured
 from .types import (
@@ -75,6 +83,13 @@ __all__ = [
     # conversation
     "ConversationStore",
     "InMemoryConversationStore",
+    # errors
+    "ToolExecutionError",
+    "ToolInternalError",
+    "ToolRateLimitError",
+    "ToolRetryExhaustedError",
+    "ToolSchemaError",
+    "ToolTimeoutError",
     # events
     "Event",
     "EventEmitter",

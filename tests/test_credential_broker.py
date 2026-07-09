@@ -229,3 +229,53 @@ def test_environment_uses_credential_name() -> None:
     env2 = _make_env(broker, default_tool)
     env2.call(ToolRef("plain_tool"), {})
     assert default_tool._captured["_credential_token"].get_secret() == "plain-secret"
+
+
+def test_secret_not_directly_accessible() -> None:
+    """Secret cannot be read via _secret or __secret attributes."""
+    broker = CredentialBroker()
+    broker.register_credential("api_key", "top-secret")
+    token = broker.issue_token("api_key", tool_name="tool")
+
+    assert token.get_secret() == "top-secret"
+
+    def _read(obj: object, attr: str) -> None:
+        with pytest.raises(AttributeError):
+            getattr(obj, attr)
+
+    _read(token, "_secret")
+    _read(token, "__secret")
+
+
+def test_validate_token_consumes_max_uses() -> None:
+    """validate_token checks expiry AND consumes one use."""
+    broker = CredentialBroker()
+    broker.register_credential("api_key", "secret")
+    token = broker.issue_token("api_key", tool_name="tool", max_uses=1)
+
+    assert broker.validate_token(token.token_id) is True
+    assert broker.validate_token(token.token_id) is False
+
+
+def test_check_token_does_not_consume_uses() -> None:
+    """check_token reports usability without consuming uses."""
+    broker = CredentialBroker()
+    broker.register_credential("api_key", "secret")
+    token = broker.issue_token("api_key", tool_name="tool", max_uses=1)
+
+    assert broker.check_token(token.token_id) is True
+    assert broker.check_token(token.token_id) is True
+    # validate_token still consumes the single use.
+    assert broker.validate_token(token.token_id) is True
+    assert broker.check_token(token.token_id) is False
+
+
+def test_repr_does_not_contain_secret() -> None:
+    """repr/str never include the raw secret."""
+    broker = CredentialBroker()
+    broker.register_credential("api_key", "leaked-secret-value")
+    token = broker.issue_token("api_key", tool_name="tool")
+
+    assert "leaked-secret-value" not in repr(token)
+    assert "leaked-secret-value" not in str(token)
+    assert "[REDACTED]" in repr(token)

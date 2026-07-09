@@ -1,12 +1,13 @@
 """Public API surface contract tests for petfishFramework.
 
 These tests codify what an end user MUST be able to import from the public
-package surface. Missing top-level exports are skipped with an explicit TODO
-marker so the gap is visible in the test report.
+package surface and protect against accidentally exposing experimental or
+internal identifiers at the top level.
 """
 from __future__ import annotations
 
 import dataclasses
+import inspect
 
 import pytest
 
@@ -24,34 +25,102 @@ from petfishframework.core.contracts import Tool
 from petfishframework.tools.calculator import Calculator
 
 # Tier-1 public API identifiers that should be reachable from `petfishframework`.
-TIER1_NAMES = [
-    "Agent",
-    "Budget",
-    "Task",
-    "Result",
-    "ReAct",
-    "LATS",
-    "LLMPlusP",
-    "Tool",
-    "BaseTool",
-    "BudgetExceeded",
-    "ReplayMode",
-    "DecisionEffect",
-]
+# This set must remain synchronized with the package __all__.
+TIER1_NAMES = list(pf.__all__)
+
+# Experimental / Internal identifiers from docs/api-stability.md that must NOT
+# leak into the top-level public surface. The three legacy names below are
+# explicitly retained at top-level for backwards compatibility even though the
+# stability doc currently marks them as Experimental.
+EXPERIMENTAL_OR_INTERNAL_NAMES = {
+    "OTelSink",
+    "SIEMSink",
+    "RecordingEnvironment",
+    "ReplayEnvironment",
+    "RerunEnvironment",
+    "ResumableEnvironment",
+    "RerunResult",
+    "RetryPolicy",
+    "with_retry",
+    "RetryModelAdapter",
+    "TimeoutPolicy",
+    "with_timeout",
+    "VaultCredentialSource",
+    "OpenAIModel",
+    "AnthropicModel",
+    "CRAGRetriever",
+    "AdaptiveRetriever",
+    "MemoryRetriever",
+    "AgentAsTool",
+    "ConversationStore",
+    "InMemoryConversationStore",
+    "StructuredResult",
+    "parse_json",
+    "parse_structured",
+    "CostReport",
+    "connect_stdio",
+    "MCPClient",
+    "CostAccountant",
+    "CapabilityProjection",
+    "CapabilityGrant",
+    "CompiledContext",
+    "TaskSpec",
+    "MemorySlice",
+    "EvidenceBundle",
+    "OutputContract",
+    "MemoryView",
+    "serve_as_mcp",
+    "canonical",
+    "order_shuffled",
+    "paraphrase",
+    "distractor",
+    "alias",
+}
 
 
 @pytest.mark.parametrize("name", TIER1_NAMES)
 def test_tier1_names_exported_from_top_level(name: str) -> None:
-    """Each Tier-1 public name must be importable from petfishframework.
-
-    Missing exports are recorded as skipped TODOs so the API spec is preserved
-    while the implementation catches up.
-    """
-    if not hasattr(pf, name):
-        pytest.skip(f"TODO: export {name!r} from petfishframework top-level")
-
+    """Each Tier-1 public name must be importable from petfishframework."""
+    assert hasattr(pf, name), f"petfishframework.{name} is missing from top-level"
     value = getattr(pf, name)
     assert value is not None, f"petfishframework.{name} should not be None"
+
+
+def test_all_exports_in___all__() -> None:
+    """__all__ is the single source of truth for the public surface.
+
+    - Every name advertised in __all__ exists and is importable.
+    - Every non-module public attribute of the package is listed in __all__.
+    """
+    for name in pf.__all__:
+        assert hasattr(pf, name), f"__all__ contains missing name {name!r}"
+        assert getattr(pf, name) is not None, f"petfishframework.{name} should not be None"
+
+    extras = {
+        name
+        for name in dir(pf)
+        if _is_public_top_level_attribute(name, getattr(pf, name))
+        and name not in pf.__all__
+    }
+    assert extras == set(), f"Top-level public names missing from __all__: {sorted(extras)}"
+
+
+def test_no_experimental_in_top_level() -> None:
+    """No Experimental/Internal identifiers reach the top-level surface."""
+    public_surface = set(pf.__all__)
+    leaked = public_surface & EXPERIMENTAL_OR_INTERNAL_NAMES
+    assert leaked == set(), f"Experimental/Internal names leaked to top-level: {sorted(leaked)}"
+
+
+def _is_public_top_level_attribute(name: str, value: object) -> bool:
+    """Return True for attributes that should be governed by __all__."""
+    if name.startswith("_") or name.endswith("_"):
+        return False
+    if name == "annotations":  # from __future__ import annotations
+        return False
+    if inspect.ismodule(value):
+        return False
+    return True
 
 
 def test_all_core_types_importable_from_core() -> None:
