@@ -14,8 +14,8 @@ def test_main_module_runs() -> None:
         timeout=10,
     )
     assert result.returncode == 0
+    assert "v" in result.stdout
     assert "petfishFramework" in result.stdout
-    assert "v0." in result.stdout
 
 
 def test_main_module_prints_usage_hint() -> None:

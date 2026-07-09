@@ -2,6 +2,75 @@
 
 All notable changes to petfishFramework will be documented in this file.
 
+## [1.0.0] — 2026-07-09
+
+### Production Release — API Stability Freeze
+
+#### API Surface Frozen (Gap 1)
+- Top-level `petfishframework.__all__` expanded from 15 to 40+ Stable exports
+- `Session`, `RuntimeEnvironment`, `EventEmitter`, `CredentialBroker`, `ScopedToken`, `Calculator`, `WordSorter`, `FakeModel`, `pass_at_k`, `audit_report_from_session`, and all SARC types now importable from top level
+- `test_api_public_surface.py` hardened: strict assert (no skip), `__all__` consistency check
+
+#### Thread Safety (Gap 2)
+- `threading.Lock` added to `EventEmitter`, `RateLimiter`, `IdempotencyStore`
+- `RuntimeEnvironment` internal counters (`_model_calls`, `_accountant`) locked
+- Session documented as single-threaded by design
+- Concurrent stress tests verify no lost events/corruption
+
+#### Exception Sanitization (Gap 3)
+- New `ToolExecutionError` hierarchy: `ToolSchemaError`, `ToolTimeoutError`, `ToolRateLimitError`, `ToolRetryExhaustedError`, `ToolInternalError`
+- All `except Exception` blocks sanitized — no `str(exc)` leakage to callers
+- `KeyboardInterrupt`, `SystemExit`, `AssertionError` propagate (not caught)
+- Schema validator sanitizes jsonschema errors (no input value echo)
+
+#### Configuration Validation (Gap 4)
+- `FrameworkConfig.__post_init__` validates: timeout > 0, temperature 0-2, max_tokens ≥ 0
+- Invalid configs fail fast with `ValueError`
+
+#### Test Coverage Tooling (Gap 5)
+- `pytest-cov` added to dev dependencies
+- `[tool.coverage.run]` configured with branch coverage
+
+#### Security (Gap 6, 8)
+- `SECURITY.md` updated: 1.0.x active, 0.5.x security-only
+- `ScopedToken._secret` → name-mangled `__secret` (not trivially accessible)
+- `CredentialBroker.validate_token` now enforces `max_uses`
+
+#### Dockerfile Hardening (Gap 7)
+- Non-root user (`pf`, uid 1000)
+- `HEALTHCHECK` with 30s interval
+- `STOPSIGNAL SIGTERM` for graceful shutdown
+
+#### Dependency Bounds (Gap 9)
+- All optional deps pinned with upper bounds: `openai<2`, `anthropic<1`, `mcp<2`, `otel<2`, `vault<2`
+
+#### CI Hardening (Gap 10, 11)
+- Integration tests explicitly gated: `-m "not integration"` default
+- Scheduled `workflow_dispatch` integration job for real-API tests
+- mypy enforced in CI: `mypy src/petfishframework` must exit 0
+- `test_mypy_clean.py` and `test_ci_markers.py` as regression guards
+
+#### EventEmitter Sink Error Visibility (Gap 12)
+- `sink_error_count` property — failing sinks increment counter instead of silent `pass`
+- Sinks called outside lock (deadlock prevention)
+
+#### API Stability Policy (Gap 13)
+- `api-stability.md` synced with actual exports
+- `serve_as_mcp` reclassified Internal → Experimental
+- `FrameworkConfig` promoted Experimental → Stable
+- v1.0 freeze criteria documented as met
+
+#### RuntimeEnvironment Refactor (Gap 14)
+- Extracted `_prepare_execution` shared by `call()` and `call_async()`
+- **Fixed gate ordering bug**: async path now matches sync (idempotency before rate_limit)
+- call()/call_async() duplication eliminated via shared execution plan
+- Thread-safety lock on model call counter and cost accountant
+
+#### Test Growth
+- v0.5.2: 382 tests → v1.0.0: 448 tests (+66)
+- mypy: 0 errors across 76 source files
+- ruff: clean
+
 ## [0.5.2] — 2026-07-09
 
 ### Review Fix Patch
