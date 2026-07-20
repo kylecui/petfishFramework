@@ -37,7 +37,7 @@ from .tools.base import BaseTool, tool
 from .tools.calculator import Calculator
 from .tools.word_sorter import WordSorter
 
-__version__ = "1.0.1"
+__version__ = "1.1.0"
 
 __all__ = [
     "AccessContext",

@@ -2,6 +2,42 @@
 
 All notable changes to petfishFramework will be documented in this file.
 
+## [1.1.0] — 2026-07-20
+
+### Enterprise Mode — Strict Mode + Identity + Cost Tracking + Approval
+
+#### Bug Fixes
+- **Streaming governance (P0 #4)**: `run_stream()` now routes through Session/RuntimeEnvironment with budget checks and event recording (was bypassing all governance)
+- **Cost tracking (P0 #5)**: Model adapters now compute `cost_usd` from built-in pricing table (gpt-4o, gpt-4o-mini, claude-3.5-sonnet, etc.). `max_cost_usd` budget actually triggers now.
+- **Enterprise example (P0 #7)**: Scenario labels aligned with actual policy effects
+
+#### Mode Switch: strict=True
+- **ExecutionContext (P0 #1)**: Immutable identity context (subject_id, roles, tenant_id, trace_id). In strict mode, Agent construction fails without non-anonymous identity.
+- **Tool visibility (P0 #2)**: `tool_filter` parameter on RuntimeEnvironment. Set-based or callable-based filtering. None = all visible (dev default).
+- **DefaultAllowPolicy rejected (P0 #6)**: strict=True rejects DefaultAllowPolicy — must use DenyByDefaultPolicy or custom.
+- **Unified audit redaction (P0 #8)**: EventEmitter gains `redact_keys` option. Strict mode defaults to redacting api_key/secret/password/token/authorization.
+
+#### Approval State Machine (P0 #3, minimal)
+- `ApprovalRequest` dataclass with PENDING→APPROVED/DENIED→CONSUMED lifecycle
+- `InMemoryApprovalStore` (Agent-scoped, thread-safe)
+- REQUIRE_APPROVAL creates request when store configured; DENY when not (fail-closed)
+- `agent.approve(request_id)` / `agent.deny(request_id)` methods
+
+#### Dev Mode Warning
+- `strict=False` (default) prints UserWarning: "development mode, not for production"
+
+#### New Public APIs
+- `ExecutionContext` — identity context
+- `ApprovalRequest`, `ApprovalStatus`, `InMemoryApprovalStore` — approval lifecycle
+- `ModelPricing`, `compute_cost_usd`, `has_pricing`, `PRICING_TABLE` — cost computation
+- `Agent.strict`, `Agent.execution_context`, `Agent.approval_store` — enterprise fields
+- `Agent.approve()`, `Agent.deny()` — approval management
+
+#### Test Growth
+- v1.0.1: 448 tests → v1.1.0: 484 tests (+36)
+- mypy: 0 errors (79 source files)
+- ruff: clean
+
 ## [1.0.1] — 2026-07-09
 
 ### Product Contract Fix
