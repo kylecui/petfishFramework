@@ -18,6 +18,7 @@ from petfishframework.core.types import (
     ToolCall,
     Usage,
 )
+from petfishframework.models.pricing import compute_cost_usd
 
 
 class AnthropicModel(ModelAdapter):
@@ -158,10 +159,15 @@ class AnthropicModel(ModelAdapter):
     def _usage_from_response(self, response: Any) -> Usage:
         """Extract token usage from an Anthropic response."""
         usage = response.usage
+        input_tokens = getattr(usage, "input_tokens", 0)
+        output_tokens = getattr(usage, "output_tokens", 0)
+        total_tokens = input_tokens + output_tokens
+        cost_usd = compute_cost_usd(self.name, input_tokens, output_tokens)
         return Usage(
-            input_tokens=getattr(usage, "input_tokens", 0),
-            output_tokens=getattr(usage, "output_tokens", 0),
-            total_tokens=getattr(usage, "input_tokens", 0) + getattr(usage, "output_tokens", 0),
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            total_tokens=total_tokens,
+            cost_usd=cost_usd if cost_usd is not None else 0.0,
         )
 
     def _build_response(self, response: Any) -> ModelResponse:

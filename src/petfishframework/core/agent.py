@@ -1,15 +1,17 @@
 """Agent — an immutable recipe for creating event-sourced Sessions."""
 from __future__ import annotations
 
-from collections.abc import Callable, Iterator
+from collections.abc import Iterator
 from dataclasses import dataclass, field, fields
-from typing import Any, TypeVar, cast
+from typing import Any, Callable, TypeVar, cast
 
+from petfishframework.core.context import ExecutionContext
 from petfishframework.core.contracts import ModelAdapter, ReasoningStrategy, Retriever, Tool
 from petfishframework.core.conversation import ConversationStore
 from petfishframework.core.events import EventEmitter
 from petfishframework.core.structured import DataclassInstance, StructuredResult, parse_structured
 from petfishframework.core.types import Budget, Message, ModelRequest, Result, Role, Task
+from petfishframework.permissions.approval import InMemoryApprovalStore
 from petfishframework.permissions.model import DefaultAllowPolicy, PermissionPolicy
 
 from .session import Session
@@ -36,11 +38,34 @@ class Agent:
     tool_registry: Any = None  # ToolRegistry | None — lazy typed to avoid import cycle
     credential_broker: Any = None  # CredentialBroker | None — lazy typed to avoid import cycle
     tool_governance: Any = None  # ToolGovernance | None — lazy typed to avoid import cycle
+    strict: bool = False
+    execution_context: ExecutionContext | None = None
+    approval_store: InMemoryApprovalStore | None = None
+    tool_filter: set[str] | Callable[[list[Tool]], list[Tool]] | None = None
 
     def __post_init__(self) -> None:
-        """Resolve model string shortcuts (e.g. 'openai:gpt-4o')."""
+        """Resolve model string shortcuts (e.g. 'openai:gpt-4o') and validate mode."""
         if isinstance(self.model, str):
             object.__setattr__(self, "model", _resolve_model(self.model))
+
+        if self.strict:
+            if (
+                self.execution_context is None
+                or self.execution_context.subject_id == "anonymous"
+            ):
+                raise ValueError("strict mode requires non-anonymous ExecutionContext")
+            if isinstance(self.permission_policy, DefaultAllowPolicy):
+                raise ValueError(
+                    "strict mode rejects DefaultAllowPolicy — use DenyByDefaultPolicy or custom"
+                )
+        else:
+            import warnings
+
+            warnings.warn(
+                "Agent constructed in development mode (strict=False). "
+                "Not recommended for production. Use strict=True with ExecutionContext.",
+                stacklevel=2,
+            )
 
     def run(
         self,
@@ -118,27 +143,37 @@ class Agent:
         task: str | Task,
         budget: Budget | None = None,
     ) -> Iterator[str]:
-        """Stream the agent's response as text chunks.
+        """Stream the agent's response as text chunks through Session governance.
 
-        Yields text chunks as they arrive from the model. The final chunk
-        completes the response. Falls back to single-chunk if model doesn't support streaming.
+        Creates a Session (event source + budget context) and routes the stream
+        through ``RuntimeEnvironment.query_model_stream`` instead of calling the
+        model directly. Falls back to a single chunk if the model does not
+        support streaming.
         """
         task_obj = task if isinstance(task, Task) else Task(prompt=task)
+        session = self.session(task_obj, budget=budget)
+        session._prepare_run()
+        env = session._env
+        if env is None:
+            raise RuntimeError("Session did not initialize a RuntimeEnvironment")
 
-        if hasattr(self.model, "query_stream"):
-            request = ModelRequest(
-                messages=(Message(role=Role.USER, content=task_obj.prompt),),
-                max_tokens=budget.max_tokens if budget is not None else None,
-            )
-            # Avoid direct attribute access on the typed ModelAdapter interface.
-            stream_attr = "query_stream"
-            stream_method: Callable[[ModelRequest], Iterator[str]] = getattr(
-                self.model, stream_attr
-            )
-            yield from stream_method(request)
-        else:
-            result = self.run(task_obj, budget=budget)
-            yield result.answer
+        request = ModelRequest(
+            messages=(Message(role=Role.USER, content=task_obj.prompt),),
+            max_tokens=env.budget.max_tokens,
+        )
+        yield from env.query_model_stream(request)
+
+    def approve(self, request_id: str, approver: str = "") -> None:
+        """Approve a pending approval request stored on this Agent."""
+        if self.approval_store is None:
+            raise RuntimeError("no approval store configured")
+        self.approval_store.approve(request_id, approver)
+
+    def deny(self, request_id: str, reason: str = "") -> None:
+        """Deny a pending approval request stored on this Agent."""
+        if self.approval_store is None:
+            raise RuntimeError("no approval store configured")
+        self.approval_store.deny(request_id, reason)
 
     def session(
         self,
@@ -169,7 +204,21 @@ class Agent:
                 if t.name not in explicit_names:
                     resolved_tools = resolved_tools + (t,)
 
-        events = EventEmitter()
+        redact_keys = (
+            frozenset(
+                {
+                    "api_key",
+                    "secret",
+                    "password",
+                    "token",
+                    "authorization",
+                    "_credential_token",
+                }
+            )
+            if self.strict
+            else None
+        )
+        events = EventEmitter(redact_keys=redact_keys)
         return Session(
             model=cast(ModelAdapter, self.model),
             reasoning=self.reasoning,
@@ -183,6 +232,9 @@ class Agent:
             conversation_store=conversation_store,
             credential_broker=self.credential_broker,
             tool_governance=self.tool_governance,
+            execution_context=self.execution_context,
+            approval_store=self.approval_store,
+            tool_filter=self.tool_filter,
         )
 
     async def session_async(

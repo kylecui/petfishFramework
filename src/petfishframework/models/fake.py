@@ -9,6 +9,7 @@ from typing import Any
 
 from petfishframework.core.contracts import ModelAdapter
 from petfishframework.core.types import ModelRequest, ModelResponse, ToolCall, Usage
+from petfishframework.models.pricing import compute_cost_usd
 
 
 @dataclass
@@ -60,7 +61,7 @@ class FakeModel(ModelAdapter):
 
     def _per_call_usage(self) -> Usage:
         """Deterministic per-call usage for testing budget enforcement."""
-        return Usage(input_tokens=10, output_tokens=20, total_tokens=30)
+        return Usage(input_tokens=10, output_tokens=20, total_tokens=30, cost_usd=0.0)
 
     @property
     def call_count(self) -> int:
@@ -94,6 +95,33 @@ class FakeModel(ModelAdapter):
                 ),
                 ModelResponse(content=final_answer),
             )
+        )
+
+    @classmethod
+    def with_cost(
+        cls,
+        model_name: str,
+        *,
+        input_tokens: int = 1_000_000,
+        output_tokens: int = 1_000_000,
+    ) -> "FakeModel":
+        """Create a FakeModel that reports real pricing-based cost_usd.
+
+        Useful for testing ``Budget.max_cost_usd`` enforcement without calling
+        a live API.
+        """
+        cost_usd = compute_cost_usd(model_name, input_tokens, output_tokens)
+        if cost_usd is None:
+            raise ValueError(f"No pricing data for model {model_name!r}")
+        usage = Usage(
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            total_tokens=input_tokens + output_tokens,
+            cost_usd=cost_usd,
+        )
+        return cls(
+            name=model_name,
+            responses=(ModelResponse(content=f"fake {model_name} response", usage=usage),),
         )
 
     @classmethod

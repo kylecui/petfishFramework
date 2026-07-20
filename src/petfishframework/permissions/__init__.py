@@ -9,6 +9,7 @@ CredentialBroker and YamlPolicy provide additional governance layers.
 """
 from __future__ import annotations
 
+from .approval import ApprovalRequest, ApprovalStatus, InMemoryApprovalStore
 from .model import (
     AccessContext,
     Action,
@@ -25,11 +26,14 @@ from .risk_policy import CompositePolicy, RiskClassificationPolicy
 __all__ = [
     "AccessContext",
     "Action",
+    "ApprovalRequest",
+    "ApprovalStatus",
     "CompositePolicy",
     "Decision",
     "DecisionEffect",
     "DefaultAllowPolicy",
     "DenyByDefaultPolicy",
+    "InMemoryApprovalStore",
     "PermissionPolicy",
     "Resource",
     "RiskClassificationPolicy",

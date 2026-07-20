@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from .config import FrameworkConfig
 from .core.agent import Agent
+from .core.context import ExecutionContext
 from .core.contracts import Tool
 from .core.environment import RuntimeEnvironment
 from .core.events import Event, EventEmitter
@@ -15,6 +16,7 @@ from .core.types import Budget, BudgetExceeded, Result, Step, Task, Trajectory, 
 from .credentials.broker import CredentialBroker
 from .credentials.token import ScopedToken
 from .models.fake import FakeModel
+from .permissions.approval import ApprovalRequest, ApprovalStatus, InMemoryApprovalStore
 from .permissions.model import (
     AccessContext,
     Action,
@@ -41,6 +43,8 @@ __all__ = [
     "AccessContext",
     "Action",
     "Agent",
+    "ApprovalRequest",
+    "ApprovalStatus",
     "AuditReport",
     "BaseTool",
     "Budget",
@@ -53,8 +57,10 @@ __all__ = [
     "DenyByDefaultPolicy",
     "Event",
     "EventEmitter",
+    "ExecutionContext",
     "FakeModel",
     "FrameworkConfig",
+    "InMemoryApprovalStore",
     "LATS",
     "LLMPlusP",
     "PermissionPolicy",

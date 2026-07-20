@@ -10,5 +10,15 @@ from __future__ import annotations
 from .anthropic import AnthropicModel
 from .fake import AsyncFakeModel, FakeModel
 from .openai import OpenAIModel
+from .pricing import PRICING_TABLE, ModelPricing, compute_cost_usd, has_pricing
 
-__all__ = ["AnthropicModel", "AsyncFakeModel", "FakeModel", "OpenAIModel"]
+__all__ = [
+    "AnthropicModel",
+    "AsyncFakeModel",
+    "FakeModel",
+    "OpenAIModel",
+    "PRICING_TABLE",
+    "ModelPricing",
+    "compute_cost_usd",
+    "has_pricing",
+]

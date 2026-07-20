@@ -46,11 +46,12 @@ class EventEmitter:
     ``sink_error_count`` without breaking the event log.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, redact_keys: frozenset[str] | None = None) -> None:
         self._events: list[Event] = []
         self._sinks: list[Callable[[Event], None]] = []
         self._lock = threading.Lock()
         self._sink_error_count = 0
+        self._redact_keys = redact_keys or frozenset()
 
     def emit(self, type: str, data: dict[str, Any] | None = None, determinism: str = "RECORDED") -> Event:
         """Record an event and notify all sinks."""
@@ -60,6 +61,8 @@ class EventEmitter:
             data=data or {},
             determinism=determinism,
         )
+        if self._redact_keys:
+            event = self._redact_event(event)
         with self._lock:
             self._events.append(event)
             # Copy sink list so we can call them without holding the lock.
@@ -74,6 +77,26 @@ class EventEmitter:
                 with self._lock:
                     self._sink_error_count += 1
         return event
+
+    def _redact_event(self, event: Event) -> Event:
+        """Redact sensitive keys from event data."""
+
+        def redact_recursive(obj: Any, keys: frozenset[str]) -> Any:
+            if isinstance(obj, dict):
+                return {
+                    k: "[REDACTED]" if k in keys else redact_recursive(v, keys)
+                    for k, v in obj.items()
+                }
+            if isinstance(obj, list):
+                return [redact_recursive(item, keys) for item in obj]
+            return obj
+
+        return Event(
+            type=event.type,
+            timestamp=event.timestamp,
+            data=redact_recursive(event.data, self._redact_keys),
+            determinism=event.determinism,
+        )
 
     def subscribe(self, sink: Callable[[Event], None]) -> None:
         """Register a sink that receives every emitted event."""

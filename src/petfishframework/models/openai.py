@@ -18,6 +18,7 @@ from petfishframework.core.types import (
     ToolCall,
     Usage,
 )
+from petfishframework.models.pricing import compute_cost_usd
 
 
 class OpenAIModel(ModelAdapter):
@@ -163,10 +164,16 @@ class OpenAIModel(ModelAdapter):
                 )
             tool_calls = tuple(parsed_calls)
 
+        input_tokens = response.usage.prompt_tokens
+        output_tokens = response.usage.completion_tokens
+        total_tokens = response.usage.total_tokens
+        cost_usd = compute_cost_usd(self.name, input_tokens, output_tokens)
+
         usage = Usage(
-            input_tokens=response.usage.prompt_tokens,
-            output_tokens=response.usage.completion_tokens,
-            total_tokens=response.usage.total_tokens,
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            total_tokens=total_tokens,
+            cost_usd=cost_usd if cost_usd is not None else 0.0,
         )
 
         return ModelResponse(

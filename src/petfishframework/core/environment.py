@@ -8,7 +8,8 @@ from __future__ import annotations
 import asyncio
 import copy
 import threading
-from dataclasses import dataclass
+from collections.abc import Iterator
+from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Any, Callable
 
 if TYPE_CHECKING:
@@ -105,6 +106,9 @@ class RuntimeEnvironment(Environment):
     rate_limiter: RateLimiter | None = None
     idempotency_store: IdempotencyStore | None = None
     schema_validator: ToolSchemaValidator | None = None
+    execution_context: Any = None  # ExecutionContext | None
+    approval_store: Any = None  # InMemoryApprovalStore | None
+    tool_filter: set[str] | Callable[[list[Tool]], list[Tool]] | None = None
 
     def __post_init__(self) -> None:
         if self._accountant is None:
@@ -131,10 +135,16 @@ class RuntimeEnvironment(Environment):
     def tools(self) -> list[Tool]:
         """Return visible tools.
 
-        Currently returns all registered tools. Visibility gating
-        (CapabilityProjection) is a planned enhancement for v0.5.
+        If ``tool_filter`` is a set of names, only matching tools are returned.
+        If ``tool_filter`` is a callable, it receives all tools and returns the
+        visible subset. ``None`` returns all tools (current behavior).
         """
-        return list(self._tools)
+        all_tools = list(self._tools)
+        if self.tool_filter is None:
+            return all_tools
+        if isinstance(self.tool_filter, set):
+            return [t for t in all_tools if t.name in self.tool_filter]
+        return self.tool_filter(all_tools)
 
     def call(self, ref: ToolRef, args: dict) -> ToolResult:
         """Invoke a tool through the permission + budget + audit gate.
@@ -158,11 +168,27 @@ class RuntimeEnvironment(Environment):
 
         # Pre-execution blocks — tool must NOT run
         if effect == DecisionEffect.DENY:
-            return self._block_tool(ref, args, decision.reason or "denied", effect, executed=False)
+            event_type = (
+                "tool.approval_required"
+                if (decision.reason or "").startswith("approval_required")
+                else None
+            )
+            return self._block_tool(
+                ref, args, decision.reason or "denied", effect, executed=False, event_type=event_type
+            )
 
         if effect == DecisionEffect.REQUIRE_APPROVAL:
+            request_id = ""
+            if (decision.reason or "").startswith("approval_required: "):
+                request_id = decision.reason.split(": ", 1)[1]
+            event_extras = {"request_id": request_id} if request_id else None
             return self._block_tool(
-                ref, args, decision.reason or "approval required", effect, executed=False
+                ref,
+                args,
+                decision.reason or "approval required",
+                effect,
+                executed=False,
+                event_extras=event_extras,
             )
 
         # DEGRADE: don't execute original, execute fallback instead
@@ -186,11 +212,27 @@ class RuntimeEnvironment(Environment):
             return self._block_tool(ref, args, "unknown tool", effect, executed=False)
 
         if effect == DecisionEffect.DENY:
-            return self._block_tool(ref, args, decision.reason or "denied", effect, executed=False)
+            event_type = (
+                "tool.approval_required"
+                if (decision.reason or "").startswith("approval_required")
+                else None
+            )
+            return self._block_tool(
+                ref, args, decision.reason or "denied", effect, executed=False, event_type=event_type
+            )
 
         if effect == DecisionEffect.REQUIRE_APPROVAL:
+            request_id = ""
+            if (decision.reason or "").startswith("approval_required: "):
+                request_id = decision.reason.split(": ", 1)[1]
+            event_extras = {"request_id": request_id} if request_id else None
             return self._block_tool(
-                ref, args, decision.reason or "approval required", effect, executed=False
+                ref,
+                args,
+                decision.reason or "approval required",
+                effect,
+                executed=False,
+                event_extras=event_extras,
             )
 
         if effect == DecisionEffect.DEGRADE:
@@ -229,6 +271,58 @@ class RuntimeEnvironment(Environment):
         else:
             response = self.model.query(request)
         return self._finalize_query_model(request, response)
+
+    def query_model_stream(self, request: ModelRequest) -> Iterator[str]:
+        """Stream model response with budget + event governance.
+
+        Same governance as :meth:`query_model` but yields text chunks.
+        Budget is checked before the stream starts and after it ends; usage is
+        estimated from consumed output when the model does not report it.
+        Events recorded: ``model.stream_start`` and ``model.stream_end``.
+        """
+        with self._state_lock:
+            self._costs.check_budget(self.budget)
+
+        self.events.emit(
+            "model.stream_start",
+            {
+                "model": self.model.name,
+                "messages": len(request.messages),
+                "session_id": self.session_id,
+            },
+        )
+
+        try:
+            if not hasattr(self.model, "query_stream"):
+                response = self.query_model(request)
+                yield response.content
+                return
+
+            model: Any = self.model
+            stream_method: Callable[[ModelRequest], Iterator[str]] = model.query_stream
+            total_chars = 0
+            for chunk in stream_method(request):
+                total_chars += len(chunk)
+                yield chunk
+
+            input_tokens = sum(len(m.content) for m in request.messages)
+            usage = Usage(
+                input_tokens=input_tokens,
+                output_tokens=total_chars,
+                total_tokens=input_tokens + total_chars,
+            )
+            with self._state_lock:
+                self._model_calls += 1
+                self._costs.record(usage)
+                self._costs.check_budget(self.budget)
+        finally:
+            self.events.emit(
+                "model.stream_end",
+                {
+                    "model": self.model.name,
+                    "session_id": self.session_id,
+                },
+            )
 
     def usage(self) -> Usage:
         """Return accumulated usage from the cost accountant."""
@@ -593,11 +687,38 @@ class RuntimeEnvironment(Environment):
         """Permission gate for tool calls; shared by sync and async paths."""
         tool = self._find_tool(ref.name)
 
-        subject = Subject()
+        if self.execution_context is not None:
+            subject = self.execution_context.to_subject()
+        else:
+            subject = Subject()
         action = Action(type="call", tool_name=ref.name, args=args)
         resource = Resource(type="tool", classification="public")
         context = AccessContext(session_id=self.session_id, step=0)
         decision = self.policy.evaluate(subject, action, resource, context)
+
+        if decision.effect == DecisionEffect.REQUIRE_APPROVAL:
+            if self.approval_store is not None:
+                import hashlib
+                import json
+
+                args_hash = hashlib.sha256(
+                    json.dumps(args, sort_keys=True, default=str).encode()
+                ).hexdigest()[:16]
+                request = self.approval_store.create(
+                    session_id=self.session_id,
+                    tool_name=ref.name,
+                    args_hash=args_hash,
+                    policy_version="v1",
+                )
+                decision = replace(
+                    decision, reason=f"approval_required: {request.request_id}"
+                )
+            else:
+                decision = replace(
+                    decision,
+                    effect=DecisionEffect.DENY,
+                    reason=f"approval_required_no_store: {decision.reason}",
+                )
 
         return tool, decision
 
@@ -609,26 +730,29 @@ class RuntimeEnvironment(Environment):
         effect: DecisionEffect,
         *,
         executed: bool = False,
+        event_type: str | None = None,
+        event_extras: dict[str, Any] | None = None,
     ) -> ToolResult:
         """Record a blocked tool call (tool did NOT execute) and return error.
 
         Used for DENY, REQUIRE_APPROVAL, and unknown tools.
         """
-        event_type = (
-            "tool.approval_required"
-            if effect == DecisionEffect.REQUIRE_APPROVAL
-            else "tool.blocked"
-        )
-        self.events.emit(
-            event_type,
-            {
-                "tool_name": ref.name,
-                "args": args,
-                "effect": effect.value,
-                "reason": reason,
-                "executed": executed,
-            },
-        )
+        if event_type is None:
+            event_type = (
+                "tool.approval_required"
+                if effect == DecisionEffect.REQUIRE_APPROVAL
+                else "tool.blocked"
+            )
+        event_data: dict[str, Any] = {
+            "tool_name": ref.name,
+            "args": args,
+            "effect": effect.value,
+            "reason": reason,
+            "executed": executed,
+        }
+        if event_extras:
+            event_data.update(event_extras)
+        self.events.emit(event_type, event_data)
         return ToolResult(error=f"blocked: {reason}")
 
     def _record_tool_call(

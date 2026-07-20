@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Callable
 
 from petfishframework.permissions.model import PermissionPolicy
 from petfishframework.reliability.replay import RecordingEnvironment, ResumableEnvironment
@@ -46,6 +46,9 @@ class Session:
     conversation_store: ConversationStore | None = None
     credential_broker: Any = None  # CredentialBroker | None
     tool_governance: Any = None  # ToolGovernance | None
+    execution_context: Any = None  # ExecutionContext | None
+    approval_store: Any = None  # InMemoryApprovalStore | None
+    tool_filter: set[str] | Callable[[list[Tool]], list[Tool]] | None = None
 
     def run(self) -> Result:
         """Execute the session and return a Result."""
@@ -89,6 +92,9 @@ class Session:
             rate_limiter=getattr(tg, "rate_limiter", None) if tg else None,
             idempotency_store=getattr(tg, "idempotency_store", None) if tg else None,
             timeout_policy=getattr(tg, "timeout_policy", None) if tg else None,
+            execution_context=self.execution_context,
+            approval_store=self.approval_store,
+            tool_filter=self.tool_filter,
         )
 
         conversation_history = self._load_conversation_history()
