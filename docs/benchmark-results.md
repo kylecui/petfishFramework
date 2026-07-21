@@ -200,3 +200,21 @@ Raw: none of these exist.
 | **3** | Reliability infra | ✅ 6 features | ❌ | structural | — |
 
 *BBH is the ONLY benchmark with non-structured scoring.
+
+---
+
+## Performance Microbenchmarks
+
+Run with `python benchmarks/benchmarks.py`. These numbers measure framework overhead only and use `FakeModel` so no API keys are required. The results below are placeholders from a single run; fill in fresh values after each benchmark run on the target machine.
+
+| Benchmark | Loops | ms/iter (placeholder) | Notes |
+|---|---|---|---|
+| Framework overhead | 100 | 0.031 | `Agent.run` with `FakeModel` and `ReAct` (no tool calls) |
+| Tool call overhead | 1000 | 0.012 | `RuntimeEnvironment.call` with `Calculator` |
+| Event sink overhead | 1000 | 0.002 | `EventEmitter.emit` with `ListSink` subscribed |
+| Policy evaluation | 1000 | 0.001 | `DefaultAllowPolicy.evaluate` |
+| Budget check | 1000 | 0.002 | `CostAccountant.record` + `check_budget` |
+
+> **Machine**: placeholder — update with CPU, OS, and Python version.
+> **Date**: placeholder — update with the run date.
+> **Command**: `python benchmarks/benchmarks.py`

@@ -57,7 +57,8 @@ def download_bbh(task: str, n: int = 5) -> list[dict]:
     data = json.loads(resp.read().decode())
     examples = data.get("examples", [])
     random.seed(42)
-    return [{"input": ex["input"], "target": ex["target"].strip()} for ex in random.sample(examples, min(n, len(examples)))]
+    sample = random.sample(examples, min(n, len(examples)))
+    return [{"input": ex["input"], "target": ex["target"].strip()} for ex in sample]
 
 
 # ---------------------------------------------------------------------------
@@ -66,7 +67,6 @@ def download_bbh(task: str, n: int = 5) -> list[dict]:
 
 def tier1_mmlu(agent_factory, raw_call, model_name: str) -> dict:
     """MMLU with run_structured — PF: data.answer, Raw: regex extraction."""
-    from petfishframework import Agent, ReAct
 
     questions = download_mmlu(5)
     pf_correct = 0
@@ -297,6 +297,7 @@ def run_tier2(model, raw_client, model_name: str) -> list[dict]:
 
 def main() -> None:
     import openai
+
     from petfishframework.models.openai import OpenAIModel
 
     model_name = os.environ.get("BENCHMARK_MODEL", "gpt-4o-mini")
@@ -325,17 +326,19 @@ def main() -> None:
     print(f"{'Benchmark':<30} {'PF':>12} {'Raw API':>12} {'Scoring':>15}")
     print("-" * 70)
     for r in all_results:
-        scoring = "structured" if "regex" not in r.get("raw_method", "") and "substring" not in r.get("raw_method", "") else "substring"
+        raw_method = r.get("raw_method", "")
+        uses_fallback = "regex" in raw_method or "substring" in raw_method
+        scoring = "substring" if uses_fallback else "structured"
         print(f"{r['name']:<30} {r['pf_score']:>12} {r['raw_score']:>12} {scoring:>15}")
     print()
 
     # Save
     with open("docs/benchmark-results.md", "w", encoding="utf-8") as f:
-        f.write(f"# petfishFramework Benchmark Results\n\n")
+        f.write("# petfishFramework Benchmark Results\n\n")
         f.write(f"> Model: {model_name} | Date: 2026-07-06 | Strategy: structured-first\n\n")
         for r in all_results:
             f.write(f"## {r['name']}\n\n")
-            f.write(f"| Metric | petfishFramework | Raw API |\n|---|---|---|\n")
+            f.write("| Metric | petfishFramework | Raw API |\n|---|---|---|\n")
             f.write(f"| Score | {r['pf_score']} | {r['raw_score']} |\n")
             f.write(f"| Method | {r['pf_method']} | {r['raw_method']} |\n\n")
             f.write(f"{r['detail']}\n\n")

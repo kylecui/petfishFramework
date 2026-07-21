@@ -4,7 +4,6 @@ from __future__ import annotations
 import json
 import os
 import random
-import re
 import urllib.request
 
 from dotenv import load_dotenv
@@ -31,9 +30,10 @@ def main() -> None:
     total = len(bbh)
     print(f"\nTotal: {total} questions")
 
+    import openai
+
     from petfishframework import Agent, ReAct
     from petfishframework.models.openai import OpenAIModel
-    import openai
 
     model_name = os.environ.get("BENCHMARK_MODEL", "gpt-4o-mini")
     model = OpenAIModel(model=model_name)

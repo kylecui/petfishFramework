@@ -2,6 +2,38 @@
 
 All notable changes to petfishFramework will be documented in this file.
 
+## [1.2.0] — 2026-07-21
+
+### Enterprise Hardening — All P1+P2 Items Complete
+
+#### P1: Enterprise Readiness
+- **P1-01 ContextCompiler**: Pluggable protocol for task → CompiledContext compilation. DefaultContextCompiler preserves current empty-default behavior.
+- **P1-02 AgentAsTool identity**: Sub-agents inherit parent ExecutionContext, budget slice, events, trace_id. Child cannot expand privileges.
+- **P1-03 EventStore**: Pluggable event persistence (InMemoryEventStore default, JsonEventStore for JSONL). Enables session replay from persistent storage.
+- **P1-04 MCP HTTP transport**: MCPTransport protocol + StreamableHttpMCPClient (httpx extra). `connect_http()` factory mirrors `connect_stdio()`.
+- **P1-05 SecretProvider**: Pluggable secret resolution protocol. CredentialBroker refactored behind it. InMemorySecretProvider (default), Vault adapter conforms.
+- **P1-06 SandboxBackend**: Pluggable sandbox execution. SubprocessSandboxBackend (default Phase 1), DockerSandboxBackend (extra, network-isolated container).
+- **P1-07 RAG authorization**: RetrievalPolicy protocol + ResourceMetadata. Environment.retrieve() filters content before model sees it. ClearanceRetrievalPolicy for role-based filtering.
+- **P1-09 Error codes**: ToolErrorCode enum on ToolExecutionError subclasses. ToolResult.error_code for machine-readable error handling.
+- **P1-10 CapabilityCatalog**: Unified tool catalog merging native + registry + MCP tools. Agent.capabilities supersedes tools tuple when set.
+
+#### P2: Product Maturity
+- **P2-01 FastAPI server**: `create_app(agent)` exposes /run, /session, /health. `petfishframework serve` CLI. Optional `server` extra.
+- **P2-02 Compatibility matrix**: docs/compatibility-matrix.md — Python × OS × adapters × MCP × extras
+- **P2-04 Policy lint/simulate**: scripts/policy_lint.py (YAML validation) + scripts/policy_simulate.py (dry-run decisions)
+- **P2-05 Supply chain CI**: .github/workflows/supply-chain.yml — SBOM (cyclonedx), pip-audit scanning, sigstore signing
+- **P2-06 Benchmarks**: benchmarks/benchmarks.py — framework overhead, tool call, event sink, policy eval, budget check
+
+#### New Optional Extras
+- `mcp-http` (httpx) — MCP Streamable HTTP transport
+- `sandbox-docker` (docker) — Docker container sandbox
+- `server` (fastapi + uvicorn) — HTTP API server
+
+#### Test Growth
+- v1.1.0: 484 tests → v1.2.0: 538 tests (+54)
+- mypy: 0 errors (83+ source files)
+- ruff: clean
+
 ## [1.1.0] — 2026-07-20
 
 ### Enterprise Mode — Strict Mode + Identity + Cost Tracking + Approval

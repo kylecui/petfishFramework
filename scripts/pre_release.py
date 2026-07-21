@@ -99,7 +99,9 @@ def main() -> int:
             errors += 1
 
         # Roadmap current version
-        if f"v{version.rsplit('.', 1)[0]}.x (current)" not in readme and f"v{version.rsplit('.', 1)[0]}.x*(current)" not in readme:
+        current_badge = f"v{version.rsplit('.', 1)[0]}.x (current)"
+        current_glob = f"v{version.rsplit('.', 1)[0]}.x*(current)"
+        if current_badge not in readme and current_glob not in readme:
             minor = version.rsplit(".", 1)[0]
             if f"v{minor}.x" in readme:
                 # Check if "current" is on the right line
@@ -129,9 +131,9 @@ def main() -> int:
         return 1
     else:
         print(f"All checks passed. Safe to release v{version}.")
-        print(f"\nNext steps:")
+        print("\nNext steps:")
         print(f"  git add -A && git commit -m \"release: v{version}\"")
-        print(f"  git push origin master")
+        print("  git push origin master")
         print(f"  git tag v{version}")
         print(f"  git push origin v{version}")
         return 0

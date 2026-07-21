@@ -24,9 +24,8 @@ def main() -> None:
         sys.exit(1)
 
     from petfishframework import Agent, Budget, ReAct
-    from petfishframework.core.types import Message, ModelRequest, ModelResponse, Role, Task, Result
+    from petfishframework.core.types import Result, Task
     from petfishframework.models.openai import OpenAIModel
-    from petfishframework.reliability import exact_match
     from petfishframework.tools.calculator import Calculator
 
     model_name = os.environ.get("BENCHMARK_MODEL", "gpt-4o-mini")
@@ -58,9 +57,9 @@ def main() -> None:
 
     lines: list[str] = []
     lines.append(f"# Pass^{K} Benchmark Results")
-    lines.append(f"")
+    lines.append("")
     lines.append(f"> Model: {model_name} | k={K} | Date: 2026-07-05")
-    lines.append(f"")
+    lines.append("")
 
     for task in TASKS:
         lines.append(f"## Task: {task.prompt}")
@@ -68,7 +67,7 @@ def main() -> None:
 
         # --- petfishFramework ---
         pf_answers: list[str] = []
-        for i in range(K):
+        for _ in range(K):
             session = agent.session(task, budget=Budget(max_steps=5))
             result = session.run()
             pf_answers.append(result.answer.strip())
@@ -76,16 +75,16 @@ def main() -> None:
         pf_exact = all(a == pf_answers[0] for a in pf_answers)
         pf_numeric = numeric_match([Result(answer=a) for a in pf_answers])
 
-        lines.append(f"### petfishFramework")
+        lines.append("### petfishFramework")
         lines.append(f"- exact_match: {'8/8 ✅' if pf_exact else '0/8 ❌'}")
         lines.append(f"- numeric_match: {'8/8 ✅' if pf_numeric else '0/8 ❌'}")
         lines.append(f"- unique answers: {len(set(pf_answers))}")
-        lines.append(f"")
-        lines.append(f"| Run # | Answer |")
-        lines.append(f"|---|---|")
+        lines.append("")
+        lines.append("| Run # | Answer |")
+        lines.append("|---|---|")
         for i, a in enumerate(pf_answers):
             lines.append(f"| {i+1} | {a[:120]} |")
-        lines.append(f"")
+        lines.append("")
 
         # --- Raw API ---
         import openai
@@ -106,23 +105,25 @@ def main() -> None:
         raw_exact = all(a == raw_answers[0] for a in raw_answers)
         raw_numeric = numeric_match([Result(answer=a) for a in raw_answers])
 
-        lines.append(f"### Raw API (no framework)")
+        lines.append("### Raw API (no framework)")
         lines.append(f"- exact_match: {'8/8 ✅' if raw_exact else '0/8 ❌'}")
         lines.append(f"- numeric_match: {'8/8 ✅' if raw_numeric else '0/8 ❌'}")
         lines.append(f"- unique answers: {len(set(raw_answers))}")
-        lines.append(f"")
-        lines.append(f"| Run # | Answer |")
-        lines.append(f"|---|---|")
+        lines.append("")
+        lines.append("| Run # | Answer |")
+        lines.append("|---|---|")
         for i, a in enumerate(raw_answers):
             lines.append(f"| {i+1} | {a[:120]} |")
         lines.append("")
 
         # Summary
-        lines.append(f"### Comparison")
-        lines.append(f"| Metric | petfishFramework | Raw API |")
-        lines.append(f"|---|---|---|")
+        lines.append("### Comparison")
+        lines.append("| Metric | petfishFramework | Raw API |")
+        lines.append("|---|---|---|")
         lines.append(f"| exact_match | {'✅ 8/8' if pf_exact else '❌ 0/8'} | {'✅ 8/8' if raw_exact else '❌ 0/8'} |")
-        lines.append(f"| numeric_match | {'✅ 8/8' if pf_numeric else '❌ 0/8'} | {'✅ 8/8' if raw_numeric else '❌ 0/8'} |")
+        pf_num = "✅ 8/8" if pf_numeric else "❌ 0/8"
+        raw_num = "✅ 8/8" if raw_numeric else "❌ 0/8"
+        lines.append(f"| numeric_match | {pf_num} | {raw_num} |")
         lines.append(f"| unique answers | {len(set(pf_answers))} | {len(set(raw_answers))} |")
         lines.append("")
 
@@ -131,7 +132,11 @@ def main() -> None:
     lines.append("")
     lines.append("| Task | PF exact | PF numeric | Raw exact | Raw numeric | PF unique | Raw unique |")
     lines.append("|---|---|---|---|---|---|---|")
-    lines.append(f"| 17×23 | {'✅' if pf_exact else '❌'} | {'✅' if pf_numeric else '❌'} | {'✅' if raw_exact else '❌'} | {'✅' if raw_numeric else '❌'} | — | — |")
+    pf_ex = "✅" if pf_exact else "❌"
+    pf_nm = "✅" if pf_numeric else "❌"
+    raw_ex = "✅" if raw_exact else "❌"
+    raw_nm = "✅" if raw_numeric else "❌"
+    lines.append(f"| 17×23 | {pf_ex} | {pf_nm} | {raw_ex} | {raw_nm} | — | — |")
     lines.append("")
 
     output = "\n".join(lines)

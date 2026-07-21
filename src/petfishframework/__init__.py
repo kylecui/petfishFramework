@@ -38,7 +38,7 @@ from .tools.calculator import Calculator
 from .tools.catalog import CapabilityCatalog
 from .tools.word_sorter import WordSorter
 
-__version__ = "1.1.0"
+__version__ = "1.2.0"
 
 __all__ = [
     "AccessContext",

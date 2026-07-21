@@ -4,7 +4,7 @@
 
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://github.com/kylecui/petfishFramework/blob/master/LICENSE)
-[![Tests: 484](https://img.shields.io/badge/tests-484-brightgreen.svg)](https://github.com/kylecui/petfishFramework/tree/master/tests/)
+[![Tests: 538](https://img.shields.io/badge/tests-538-brightgreen.svg)](https://github.com/kylecui/petfishFramework/tree/master/tests/)
 
 **Status: v1.0 Stable** — Core runtime APIs are frozen. Selected integrations remain experimental; see [API Stability](docs/api-stability.md).
 
@@ -254,7 +254,7 @@ agent = Agent(model=model, reasoning=ReAct(), tools=tools, tool_governance=gover
 
 - **v0.2.x**: Core runtime, permission semantics, enterprise PoC, Trusted Publishing ✅
 - **v0.3.x**: YAML Policy Engine, CredentialBroker ✅
-- **v1.1.x** (current): Enterprise mode — strict mode, ExecutionContext, tool visibility, approval state machine, cost tracking, streaming governance
+- **v1.2.x** (current): Enterprise hardening — ContextCompiler, EventStore, CapabilityCatalog, SecretProvider, MCP HTTP, SandboxBackend, RAG authorization, error codes, FastAPI server, SBOM, benchmarks
 
 ## Current Limitations
 
@@ -313,7 +313,7 @@ See [API Stability Policy](docs/api-stability.md) for full classification and de
 git clone https://github.com/kylecui/petfishFramework.git
 cd petfishFramework
 uv sync --all-extras
-uv run pytest              # 484 tests
+uv run pytest              # 538 tests
 uv run ruff check src/ tests/
 ```
 

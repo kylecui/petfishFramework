@@ -23,9 +23,10 @@ def main() -> None:
     print(f"Downloaded {len(questions)} MMLU questions")
     print(f"Subjects: {set(q['subject'] for q in questions)}")
 
+    import openai
+
     from petfishframework import Agent, ReAct
     from petfishframework.models.openai import OpenAIModel
-    import openai
 
     model_name = os.environ.get("BENCHMARK_MODEL", "gpt-4o-mini")
     model = OpenAIModel(model=model_name)
