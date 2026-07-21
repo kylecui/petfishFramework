@@ -42,6 +42,9 @@ class Agent:
     execution_context: ExecutionContext | None = None
     approval_store: InMemoryApprovalStore | None = None
     tool_filter: set[str] | Callable[[list[Tool]], list[Tool]] | None = None
+    context_compiler: Any = None  # ContextCompiler | None — lazy typed to avoid import cycle
+    event_store: Any = None  # EventStore | None — lazy typed to avoid import cycle
+    capabilities: Any = None  # CapabilityCatalog | None — lazy typed to avoid import cycle
 
     def __post_init__(self) -> None:
         """Resolve model string shortcuts (e.g. 'openai:gpt-4o') and validate mode."""
@@ -192,17 +195,21 @@ class Agent:
             task = Task(prompt=task)
 
         # Resolve tools: explicit + auto-selected from registry
-        resolved_tools = self.tools
-        if self.tool_registry is not None:
-            from petfishframework.tools.registry import IntentRouter
+        # If capabilities catalog is set, it supersedes tools/tool_registry.
+        if self.capabilities is not None:
+            resolved_tools = self.capabilities.all_tools()
+        else:
+            resolved_tools = self.tools
+            if self.tool_registry is not None:
+                from petfishframework.tools.registry import IntentRouter
 
-            router = IntentRouter()
-            auto_tools = router.route(task, self.tool_registry)
-            # Merge: explicit tools + auto-selected (deduplicate by name)
-            explicit_names = {t.name for t in resolved_tools}
-            for t in auto_tools:
-                if t.name not in explicit_names:
-                    resolved_tools = resolved_tools + (t,)
+                router = IntentRouter()
+                auto_tools = router.route(task, self.tool_registry)
+                # Merge: explicit tools + auto-selected (deduplicate by name)
+                explicit_names = {t.name for t in resolved_tools}
+                for t in auto_tools:
+                    if t.name not in explicit_names:
+                        resolved_tools = resolved_tools + (t,)
 
         redact_keys = (
             frozenset(
@@ -218,7 +225,7 @@ class Agent:
             if self.strict
             else None
         )
-        events = EventEmitter(redact_keys=redact_keys)
+        events = EventEmitter(redact_keys=redact_keys, store=self.event_store)
         return Session(
             model=cast(ModelAdapter, self.model),
             reasoning=self.reasoning,
@@ -235,6 +242,7 @@ class Agent:
             execution_context=self.execution_context,
             approval_store=self.approval_store,
             tool_filter=self.tool_filter,
+            context_compiler=self.context_compiler,
         )
 
     async def session_async(

@@ -20,6 +20,8 @@ class TaskSpec:
     """
 
     task_type: str = "generic"
+    prompt: str = ""
+    intent: str = ""
     success_criteria: str = ""
     forbidden_actions: tuple[str, ...] = ()
     requires_sources: bool = False

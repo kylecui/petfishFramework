@@ -12,61 +12,22 @@ environment variables and enforces a hard timeout.
 """
 from __future__ import annotations
 
-import multiprocessing
-import os
-import queue
-import tempfile
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
-from petfishframework.core.contracts import Tool
-from petfishframework.core.errors import ToolInternalError
 from petfishframework.core.types import ToolResult
+from petfishframework.tools.sandbox_backend import SandboxBackend, SubprocessSandboxBackend
 
 
-def _child_runner(
-    tool: Tool,
-    args: dict[str, Any],
-    workdir: str,
-    allowed_env_keys: frozenset[str],
-    result_queue: multiprocessing.Queue,
-) -> None:
-    """Run ``tool.execute(args)`` inside the isolated child process.
-
-    The child receives a filtered environment, changes into the supplied
-    working directory, executes the tool, and pushes the ``ToolResult`` back
-    through ``result_queue``.
-    """
-    # Restrict environment variables to the configured whitelist.
-    filtered_env = {
-        key: value for key, value in os.environ.items() if key in allowed_env_keys
-    }
-    os.environ.clear()
-    os.environ.update(filtered_env)
-
-    # Change into the sandbox working directory.
-    os.chdir(workdir)
-
-    try:
-        result = tool.execute(args)
-    except AssertionError:
-        raise
-    except Exception:  # noqa: BLE001
-        result = ToolResult(error=str(ToolInternalError(tool.name)))
-
-    result_queue.put(result)
-
-
-@dataclass
+@dataclass(init=False)
 class SandboxExecutor:
-    """Runs tool execution in an isolated subprocess.
+    """Facade for sandboxed tool execution.
 
-    Phase 1 sandbox: process isolation (not container/seccomp grade).
+    Default backend: :class:`SubprocessSandboxBackend` (process isolation,
+    Phase 1).
 
-    - Temporary working directory
-    - Restricted environment variables (whitelist)
-    - Hard timeout (kills child on expiry)
-    - stdout/stderr capture (inherited streams are isolated by subprocess)
+    For stronger isolation: :class:`~petfishframework.tools.docker_sandbox.DockerSandboxBackend`
+    (requires the ``sandbox-docker`` extra).
 
     .. note::
 
@@ -75,52 +36,35 @@ class SandboxExecutor:
         tools over closures or lambdas for cross-platform compatibility.
     """
 
-    timeout_s: float = 30.0
-    allowed_env_keys: frozenset[str] = frozenset(
-        {"PATH", "HOME", "USER", "LANG", "LC_ALL"}
-    )
-    workdir: str | None = None  # None = temp dir
+    backend: SandboxBackend = field(default_factory=SubprocessSandboxBackend)
 
-    def execute(self, tool: Tool, args: dict) -> ToolResult:
-        """Execute a tool in an isolated subprocess."""
-        result_queue: multiprocessing.Queue = multiprocessing.Queue()
+    def __init__(
+        self,
+        backend: SandboxBackend | None = None,
+        timeout_s: float = 30.0,
+        allowed_env_keys: frozenset[str] | None = None,
+        workdir: str | None = None,
+    ) -> None:
+        """Create a sandbox executor.
 
-        temp_dir: tempfile.TemporaryDirectory[str] | None = None
-        if self.workdir is None:
-            temp_dir = tempfile.TemporaryDirectory()
-            workdir = temp_dir.name
-        else:
-            workdir = self.workdir
+        If ``backend`` is provided, it is used directly. Otherwise, a
+        :class:`SubprocessSandboxBackend` is constructed from the remaining
+        keyword arguments, preserving the original ``SandboxExecutor``
+        constructor interface.
+        """
+        if backend is not None:
+            self.backend = backend
+            return
 
-        try:
-            process = multiprocessing.Process(
-                target=_child_runner,
-                args=(tool, args, workdir, self.allowed_env_keys, result_queue),
-            )
-            process.start()
-            process.join(timeout=self.timeout_s)
+        if allowed_env_keys is None:
+            allowed_env_keys = frozenset({"PATH", "HOME", "USER", "LANG", "LC_ALL"})
 
-            if process.is_alive():
-                process.terminate()
-                process.join(timeout=1.0)
-                if process.is_alive():
-                    process.kill()
-                    process.join(timeout=1.0)
-                # Drain any late result so the queue can be garbage collected.
-                try:
-                    result_queue.get(timeout=0.5)
-                except queue.Empty:
-                    pass
-                return ToolResult(error="timeout")
+        self.backend = SubprocessSandboxBackend(
+            timeout_s=timeout_s,
+            allowed_env_keys=allowed_env_keys,
+            workdir=workdir,
+        )
 
-            try:
-                result = result_queue.get(timeout=1.0)
-            except queue.Empty:
-                return ToolResult(error="no result from sandbox")
-
-            if not isinstance(result, ToolResult):
-                return ToolResult(value=result)
-            return result
-        finally:
-            if temp_dir is not None:
-                temp_dir.cleanup()
+    def execute(self, tool: Any, args: dict[str, Any]) -> ToolResult:
+        """Execute a tool through the configured sandbox backend."""
+        return self.backend.execute(tool, args)

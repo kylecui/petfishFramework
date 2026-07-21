@@ -7,11 +7,13 @@ from __future__ import annotations
 from .agent_tool import AgentAsTool
 from .base import BaseTool, tool
 from .calculator import Calculator
+from .catalog import CapabilityCatalog
 from .governance import ToolGovernance
 from .idempotency import IdempotencyStore
 from .metadata_policy import ToolMetadataPolicy
 from .rate_limiter import RateLimiter, RateLimitPolicy
 from .sandbox import SandboxExecutor
+from .sandbox_backend import SandboxBackend, SubprocessSandboxBackend
 from .schema_validator import SchemaViolationError, ToolSchemaValidator
 from .word_sorter import WordSorter
 
@@ -19,11 +21,14 @@ __all__ = [
     "AgentAsTool",
     "BaseTool",
     "Calculator",
+    "CapabilityCatalog",
     "IdempotencyStore",
     "RateLimitPolicy",
     "RateLimiter",
+    "SandboxBackend",
     "SandboxExecutor",
     "SchemaViolationError",
+    "SubprocessSandboxBackend",
     "ToolGovernance",
     "ToolMetadataPolicy",
     "ToolSchemaValidator",

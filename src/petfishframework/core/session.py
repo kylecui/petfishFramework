@@ -8,7 +8,7 @@ from typing import Any, Callable
 from petfishframework.permissions.model import PermissionPolicy
 from petfishframework.reliability.replay import RecordingEnvironment, ResumableEnvironment
 
-from .compiled import CompiledContext, EvidenceBundle, MemorySlice, OutputContract, TaskSpec
+from .compiler import DefaultContextCompiler
 from .contracts import (
     Environment,
     MemoryView,
@@ -49,6 +49,7 @@ class Session:
     execution_context: Any = None  # ExecutionContext | None
     approval_store: Any = None  # InMemoryApprovalStore | None
     tool_filter: set[str] | Callable[[list[Tool]], list[Tool]] | None = None
+    context_compiler: Any = None  # ContextCompiler | None
 
     def run(self) -> Result:
         """Execute the session and return a Result."""
@@ -70,11 +71,14 @@ class Session:
 
     def _prepare_run(self) -> RunContext:
         """Build the RuntimeEnvironment and RunContext; shared by sync/async paths."""
-        compiled = CompiledContext(
-            task_spec=TaskSpec(task_type="generic"),
-            memory_slice=MemorySlice(),
-            evidence_bundle=EvidenceBundle(),
-            output_contract=OutputContract(),
+        compiler = self.context_compiler
+        if compiler is None:
+            compiler = DefaultContextCompiler()
+        compiled = compiler.compile(
+            task=self.task,
+            ctx=self.execution_context,
+            memory=MemoryView(),
+            retriever=self.retriever,
         )
 
         budget = self.budget if self.budget is not None else Budget()

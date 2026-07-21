@@ -35,6 +35,7 @@ from .reliability.pass_at_k import pass_at_k
 from .reliability.replay import ReplayMode
 from .tools.base import BaseTool, tool
 from .tools.calculator import Calculator
+from .tools.catalog import CapabilityCatalog
 from .tools.word_sorter import WordSorter
 
 __version__ = "1.1.0"
@@ -50,6 +51,7 @@ __all__ = [
     "Budget",
     "BudgetExceeded",
     "Calculator",
+    "CapabilityCatalog",
     "CredentialBroker",
     "Decision",
     "DecisionEffect",

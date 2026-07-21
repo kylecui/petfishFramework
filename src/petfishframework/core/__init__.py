@@ -13,6 +13,7 @@ from .compiled import (
     OutputContract,
     TaskSpec,
 )
+from .compiler import ContextCompiler, DefaultContextCompiler
 from .contracts import (
     Clearance,
     Environment,
@@ -34,6 +35,7 @@ from .errors import (
     ToolSchemaError,
     ToolTimeoutError,
 )
+from .event_store import EventStore, InMemoryEventStore, JsonEventStore
 from .events import Event, EventEmitter
 from .structured import StructuredResult, parse_json, parse_structured
 from .types import (
@@ -105,4 +107,11 @@ __all__ = [
     "MemorySlice",
     "OutputContract",
     "TaskSpec",
+    # compiler
+    "ContextCompiler",
+    "DefaultContextCompiler",
+    # event store
+    "EventStore",
+    "InMemoryEventStore",
+    "JsonEventStore",
 ]

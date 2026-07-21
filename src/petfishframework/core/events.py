@@ -15,7 +15,10 @@ import threading
 import time
 import uuid
 from dataclasses import dataclass, field
-from typing import Any, Callable
+from typing import TYPE_CHECKING, Any, Callable
+
+if TYPE_CHECKING:
+    from .event_store import EventStore
 
 
 @dataclass(frozen=True)
@@ -46,12 +49,17 @@ class EventEmitter:
     ``sink_error_count`` without breaking the event log.
     """
 
-    def __init__(self, redact_keys: frozenset[str] | None = None) -> None:
+    def __init__(
+        self,
+        redact_keys: frozenset[str] | None = None,
+        store: EventStore | None = None,
+    ) -> None:
         self._events: list[Event] = []
         self._sinks: list[Callable[[Event], None]] = []
         self._lock = threading.Lock()
         self._sink_error_count = 0
         self._redact_keys = redact_keys or frozenset()
+        self._store = store
 
     def emit(self, type: str, data: dict[str, Any] | None = None, determinism: str = "RECORDED") -> Event:
         """Record an event and notify all sinks."""
@@ -67,6 +75,14 @@ class EventEmitter:
             self._events.append(event)
             # Copy sink list so we can call them without holding the lock.
             sinks = list(self._sinks)
+
+        if self._store is not None:
+            try:
+                self._store.append(event)
+            except Exception:
+                # Store failures must NOT break the event log.
+                with self._lock:
+                    self._sink_error_count += 1
 
         for sink in sinks:
             try:
