@@ -143,8 +143,8 @@ class StdioMCPClient:
         proc.stdin.write(json.dumps(message) + "\n")
         proc.stdin.flush()
 
-    def initialize(self) -> None:
-        """Perform the MCP initialization handshake."""
+    def initialize(self) -> dict[str, Any]:
+        """Perform the MCP initialization handshake and return server info."""
         if self._process is None:
             self._process = self._spawn()
 
@@ -153,11 +153,12 @@ class StdioMCPClient:
             {
                 "protocolVersion": "2024-11-05",
                 "capabilities": {},
-                "clientInfo": {"name": "petfishframework", "version": "0.1.0"},
+                "clientInfo": {"name": "petfishframework", "version": "1.1.0"},
             },
         )
         self._server_capabilities = (result or {}).get("capabilities", {})
         self._send_notification("notifications/initialized")
+        return result if isinstance(result, dict) else {}
 
     def ping(self) -> bool:
         """Send a ping and return True if the server responds."""
@@ -179,12 +180,15 @@ class StdioMCPClient:
             raise RuntimeError(f"unexpected tools/list tools field: {tools!r}")
         return tools
 
-    def call_tool(self, name: str, arguments: dict[str, Any]) -> Any:
+    def call_tool(self, name: str, args: dict[str, Any]) -> dict[str, Any]:
         """Call a tool by name and return the raw result."""
-        return self._send_request(
+        result = self._send_request(
             "tools/call",
-            {"name": name, "arguments": arguments},
+            {"name": name, "arguments": args},
         )
+        if not isinstance(result, dict):
+            raise RuntimeError(f"unexpected tools/call response: {result!r}")
+        return result
 
     def close(self) -> None:
         """Terminate the subprocess and close pipes.

@@ -4,6 +4,7 @@ from __future__ import annotations
 import time
 import uuid
 
+from .provider import InMemorySecretProvider, SecretProvider
 from .token import ScopedToken
 from .vault_adapter import VaultCredentialSource
 
@@ -15,14 +16,24 @@ class CredentialBroker:
     scoped to specific tools. Tokens auto-expire and can be revoked.
     """
 
-    def __init__(self, default_ttl_s: float = 3600) -> None:
-        self._credentials: dict[str, str] = {}  # name → secret
+    def __init__(
+        self,
+        provider: SecretProvider | None = None,
+        default_ttl_s: float = 3600,
+    ) -> None:
+        self._provider = provider if provider is not None else InMemorySecretProvider()
         self._active_tokens: dict[str, ScopedToken] = {}  # token_id → token
         self._default_ttl = default_ttl_s
 
     def register_credential(self, name: str, secret: str) -> None:
         """Register a real credential. Secret is stored internally only."""
-        self._credentials[name] = secret
+        register = getattr(self._provider, "register", None)
+        if register is None:
+            raise TypeError(
+                f"Provider {type(self._provider).__name__} does not support "
+                "credential registration"
+            )
+        register(name, secret)
 
     def register_credential_from_vault(
         self, name: str, vault_source: VaultCredentialSource, path: str
@@ -43,10 +54,9 @@ class CredentialBroker:
         max_uses: int = 0,
     ) -> ScopedToken:
         """Issue a scoped, time-limited token for a specific tool."""
-        if name not in self._credentials:
+        secret = self._provider.get_secret(name)
+        if secret is None:
             raise KeyError(f"Credential not registered: {name}")
-
-        secret = self._credentials[name]
         ttl = ttl_s if ttl_s is not None else self._default_ttl
         token_id = uuid.uuid4().hex
         expires_at = time.time() + ttl

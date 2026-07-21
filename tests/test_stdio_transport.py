@@ -101,7 +101,7 @@ def test_stdio_connect_and_discover(mock_server_path: Path) -> None:
             assert tool.description
             assert isinstance(tool.input_schema, dict)
     finally:
-        if hasattr(client, "_transport"):
+        if client._transport is not None:
             client._transport.close()
 
 
@@ -114,7 +114,7 @@ def test_stdio_call_tool(mock_server_path: Path) -> None:
 
         assert result == {"content": [{"type": "text", "text": "hello stdio"}]}
     finally:
-        if hasattr(client, "_transport"):
+        if client._transport is not None:
             client._transport.close()
 
 

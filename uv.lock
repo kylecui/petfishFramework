@@ -1163,6 +1163,9 @@ anthropic = [
 mcp = [
     { name = "mcp" },
 ]
+mcp-http = [
+    { name = "httpx" },
+]
 openai = [
     { name = "openai" },
 ]
@@ -1188,6 +1191,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "anthropic", marker = "extra == 'anthropic'", specifier = ">=0.40,<1" },
+    { name = "httpx", marker = "extra == 'mcp-http'", specifier = ">=0.27,<1" },
     { name = "hvac", marker = "extra == 'vault'", specifier = ">=1.0,<2" },
     { name = "mcp", marker = "extra == 'mcp'", specifier = ">=1.0,<2" },
     { name = "openai", marker = "extra == 'openai'", specifier = ">=1.0,<2" },
@@ -1195,7 +1199,7 @@ requires-dist = [
     { name = "opentelemetry-sdk", marker = "extra == 'otel'", specifier = ">=1.20,<2" },
     { name = "pyyaml", specifier = ">=6.0.3" },
 ]
-provides-extras = ["openai", "anthropic", "mcp", "otel", "vault"]
+provides-extras = ["openai", "anthropic", "mcp", "mcp-http", "otel", "vault"]
 
 [package.metadata.requires-dev]
 dev = [

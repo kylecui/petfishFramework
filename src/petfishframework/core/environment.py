@@ -31,9 +31,10 @@ from petfishframework.permissions.model import (
 from petfishframework.reliability.cost import CostAccountant
 from petfishframework.reliability.retry import RetryableError
 from petfishframework.reliability.timeout import OperationTimedOut
+from petfishframework.retrieval.policy import RetrievalPolicy
 
 from .contracts import Environment, ModelAdapter, Retriever, Tool
-from .errors import ToolExecutionError, ToolInternalError
+from .errors import ToolErrorCode, ToolExecutionError, ToolInternalError
 from .events import EventEmitter
 from .types import (
     Budget,
@@ -109,6 +110,7 @@ class RuntimeEnvironment(Environment):
     execution_context: Any = None  # ExecutionContext | None
     approval_store: Any = None  # InMemoryApprovalStore | None
     tool_filter: set[str] | Callable[[list[Tool]], list[Tool]] | None = None
+    retrieval_policy: RetrievalPolicy | None = None
 
     def __post_init__(self) -> None:
         if self._accountant is None:
@@ -249,11 +251,13 @@ class RuntimeEnvironment(Environment):
     def retrieve(self, query: str, top_k: int = 5) -> list[Snippet]:
         """Retrieve knowledge snippets (skeleton: empty if no retriever)."""
         snippets = self._fetch_snippets(query, top_k)
+        snippets = self._apply_retrieval_policy(snippets)
         return self._finalize_retrieval(query, top_k, snippets)
 
     async def retrieve_async(self, query: str, top_k: int = 5) -> list[Snippet]:
         """Async version of retrieve; awaits async retriever.retrieve when detected."""
         snippets = await self._fetch_snippets_async(query, top_k)
+        snippets = self._apply_retrieval_policy(snippets)
         return self._finalize_retrieval(query, top_k, snippets)
 
     def query_model(self, request: ModelRequest) -> ModelResponse:
@@ -373,7 +377,12 @@ class RuntimeEnvironment(Environment):
                         "violations": violations,
                     },
                 )
-                raise _ExecutionBlocked(ToolResult(error=f"schema_violation: {'; '.join(violations)}"))
+                raise _ExecutionBlocked(
+                    ToolResult(
+                        error=f"schema_violation: {'; '.join(violations)}",
+                        error_code=ToolErrorCode.SCHEMA_VALIDATION.value,
+                    )
+                )
 
         # Gate 2: idempotency check (before rate limit — cache hit should not consume quota)
         if self.idempotency_store is not None and getattr(tool, "supports_idempotency_key", False):
@@ -401,7 +410,12 @@ class RuntimeEnvironment(Environment):
                         "args": args,
                     },
                 )
-                raise _ExecutionBlocked(ToolResult(error=f"rate_limited: {tool.name}"))
+                raise _ExecutionBlocked(
+                    ToolResult(
+                        error=f"rate_limited: {tool.name}",
+                        error_code=ToolErrorCode.RATE_LIMITED.value,
+                    )
+                )
 
         # Pre-execution: input mask (strip/redact sensitive fields from args)
         if effect == DecisionEffect.MASK and decision.input_mask_fields:
@@ -456,7 +470,10 @@ class RuntimeEnvironment(Environment):
                     "timeout_s": timeout_s,
                 },
             )
-            result = ToolResult(error=f"timeout after {timeout_s}s")
+            result = ToolResult(
+                error=f"timeout after {timeout_s}s",
+                error_code=ToolErrorCode.TIMEOUT.value,
+            )
         except RetryableError as e:
             self.events.emit(
                 "tool.retry_exhausted",
@@ -465,13 +482,23 @@ class RuntimeEnvironment(Environment):
                     "error": str(e),
                 },
             )
-            result = ToolResult(error=f"retry_exhausted: {e}")
+            result = ToolResult(
+                error=f"retry_exhausted: {e}",
+                error_code=ToolErrorCode.RETRY_EXHAUSTED.value,
+            )
         except ToolExecutionError as exc:
-            result = ToolResult(error=str(exc))
+            result = ToolResult(
+                error=str(exc),
+                error_code=exc.code.value,
+            )
         except AssertionError:
             raise
         except Exception:
-            result = ToolResult(error=str(ToolInternalError(ref.name)))
+            internal = ToolInternalError(ref.name)
+            result = ToolResult(
+                error=str(internal),
+                error_code=internal.code.value,
+            )
 
         duration_ms = (_time.time() - start) * 1000
         return result, duration_ms
@@ -517,7 +544,10 @@ class RuntimeEnvironment(Environment):
                     "timeout_s": timeout_s,
                 },
             )
-            result = ToolResult(error=f"timeout after {timeout_s}s")
+            result = ToolResult(
+                error=f"timeout after {timeout_s}s",
+                error_code=ToolErrorCode.TIMEOUT.value,
+            )
         except RetryableError as e:
             self.events.emit(
                 "tool.retry_exhausted",
@@ -526,13 +556,23 @@ class RuntimeEnvironment(Environment):
                     "error": str(e),
                 },
             )
-            result = ToolResult(error=f"retry_exhausted: {e}")
+            result = ToolResult(
+                error=f"retry_exhausted: {e}",
+                error_code=ToolErrorCode.RETRY_EXHAUSTED.value,
+            )
         except ToolExecutionError as exc:
-            result = ToolResult(error=str(exc))
+            result = ToolResult(
+                error=str(exc),
+                error_code=exc.code.value,
+            )
         except AssertionError:
             raise
         except Exception:
-            result = ToolResult(error=str(ToolInternalError(ref.name)))
+            internal = ToolInternalError(ref.name)
+            result = ToolResult(
+                error=str(internal),
+                error_code=internal.code.value,
+            )
 
         duration_ms = (_time.time() - start) * 1000
         return result, duration_ms
@@ -732,11 +772,17 @@ class RuntimeEnvironment(Environment):
         executed: bool = False,
         event_type: str | None = None,
         event_extras: dict[str, Any] | None = None,
+        error_code: str | None = None,
     ) -> ToolResult:
         """Record a blocked tool call (tool did NOT execute) and return error.
 
         Used for DENY, REQUIRE_APPROVAL, and unknown tools.
         """
+        if error_code is None:
+            if effect == DecisionEffect.REQUIRE_APPROVAL:
+                error_code = ToolErrorCode.APPROVAL_REQUIRED.value
+            else:
+                error_code = ToolErrorCode.POLICY_DENIED.value
         if event_type is None:
             event_type = (
                 "tool.approval_required"
@@ -753,7 +799,7 @@ class RuntimeEnvironment(Environment):
         if event_extras:
             event_data.update(event_extras)
         self.events.emit(event_type, event_data)
-        return ToolResult(error=f"blocked: {reason}")
+        return ToolResult(error=f"blocked: {reason}", error_code=error_code)
 
     def _record_tool_call(
         self,
@@ -840,6 +886,12 @@ class RuntimeEnvironment(Environment):
         if asyncio.iscoroutinefunction(self.retriever.retrieve):
             return await self.retriever.retrieve(query, top_k)
         return self.retriever.retrieve(query, top_k)
+
+    def _apply_retrieval_policy(self, snippets: list[Snippet]) -> list[Snippet]:
+        """Apply the configured retrieval policy, if any."""
+        if self.retrieval_policy is None:
+            return snippets
+        return self.retrieval_policy.filter(snippets, self.execution_context)
 
     def _finalize_retrieval(self, query: str, top_k: int, snippets: list[Snippet]) -> list[Snippet]:
         """Emit retrieval event; shared by sync and async paths."""

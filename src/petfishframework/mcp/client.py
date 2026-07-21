@@ -15,6 +15,7 @@ from .allowlist import MCPAllowlist
 from .exceptions import MCPConnectionRefused, MCPSchemaDrift
 from .risk_mapper import MCPRiskMapper
 from .schema_pin import SchemaPin
+from .transport import MCPTransport
 from .wrapper import MCPToolWrapper
 
 
@@ -45,13 +46,18 @@ class MCPClient:
 
     def __init__(
         self,
-        tools: dict[str, MCPToolSpec],
+        tools: dict[str, MCPToolSpec] | None = None,
+        transport: MCPTransport | None = None,
         risk_mapper: MCPRiskMapper | None = None,
     ) -> None:
-        self._tools: dict[str, MCPToolSpec] = dict(tools)
         self._risk_mapper: MCPRiskMapper | None = risk_mapper
         self._schema_pin: SchemaPin | None = None
-        self._transport: Any | None = None
+        self._transport: MCPTransport | None = transport
+        if transport is not None:
+            transport.initialize()
+            self._tools: dict[str, MCPToolSpec] = _build_tools(transport)
+        else:
+            self._tools = dict(tools) if tools is not None else {}
 
     def discover_tools(self) -> list[MCPToolWrapper]:
         """Return each registered MCP tool wrapped as a framework ``Tool``."""
@@ -135,7 +141,7 @@ class MCPClient:
         self.close()
 
 
-def _build_tools(transport: Any) -> dict[str, MCPToolSpec]:
+def _build_tools(transport: MCPTransport) -> dict[str, MCPToolSpec]:
     """Build ``MCPToolSpec`` instances from a live transport."""
     tool_defs = transport.list_tools()
     tools: dict[str, MCPToolSpec] = {}
@@ -189,8 +195,24 @@ def connect_stdio(
     from .stdio_transport import StdioMCPClient
 
     transport = StdioMCPClient(command, args, env=env)
-    transport.initialize()
+    return MCPClient(transport=transport)
 
-    client = MCPClient(tools=_build_tools(transport))
-    client._transport = transport
-    return client
+
+def connect_http(
+    url: str,
+    headers: dict[str, str] | None = None,
+) -> MCPClient:
+    """Connect to an MCP server via Streamable HTTP and discover its tools.
+
+    This function creates an HTTP transport, performs the MCP initialization
+    handshake, lists the available tools, and returns an ``MCPClient`` populated
+    with ``MCPToolSpec`` instances that forward calls to the remote server via
+    JSON-RPC POST requests.
+
+    Requires the ``httpx`` package. Install it with the ``mcp-http`` extra:
+    ``pip install 'petfishframework[mcp-http]'``.
+    """
+    from .http_transport import StreamableHttpMCPClient
+
+    transport = StreamableHttpMCPClient(url, headers)
+    return MCPClient(transport=transport)

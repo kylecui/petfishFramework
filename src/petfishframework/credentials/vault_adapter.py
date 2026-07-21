@@ -82,6 +82,18 @@ class VaultCredentialSource:
         self._cache[path] = secret
         return secret
 
+    def get_secret(self, name: str) -> str | None:
+        """Read a secret by path/name, conforming to :class:`SecretProvider`.
+
+        This is a thin wrapper around :meth:`read_secret` so the Vault source
+        can be plugged directly into a :class:`CredentialBroker`.
+        """
+        return self.read_secret(name)
+
+    def list_secrets(self) -> list[str]:
+        """Return the paths currently present in the local cache."""
+        return list(self._cache.keys())
+
     def clear_cache(self) -> None:
         """Clear the local secret cache."""
         self._cache.clear()

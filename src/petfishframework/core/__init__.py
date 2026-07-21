@@ -26,6 +26,7 @@ from .contracts import (
 )
 from .conversation import ConversationStore, InMemoryConversationStore
 from .errors import (
+    ToolErrorCode,
     ToolExecutionError,
     ToolInternalError,
     ToolRateLimitError,
@@ -84,6 +85,7 @@ __all__ = [
     "ConversationStore",
     "InMemoryConversationStore",
     # errors
+    "ToolErrorCode",
     "ToolExecutionError",
     "ToolInternalError",
     "ToolRateLimitError",

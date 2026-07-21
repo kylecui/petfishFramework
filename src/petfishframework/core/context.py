@@ -15,6 +15,7 @@ class ExecutionContext:
     roles: tuple[str, ...] = ()
     tenant_id: str | None = None
     trace_id: str | None = None
+    clearance: str = "public"
 
     @staticmethod
     def anonymous() -> ExecutionContext:
@@ -28,4 +29,5 @@ class ExecutionContext:
             user_id=self.subject_id,
             roles=self.roles,
             tenant_id=self.tenant_id or "default",
+            clearance=self.clearance,
         )

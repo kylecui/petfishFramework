@@ -171,6 +171,7 @@ class ToolResult:
 
     value: Any = None
     error: str | None = None
+    error_code: str | None = None  # machine-readable code from ToolErrorCode
     masked: bool = False  # if MASK decision effect applied
 
     @property
