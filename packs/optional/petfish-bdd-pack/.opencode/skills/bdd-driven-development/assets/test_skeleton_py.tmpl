@@ -1,0 +1,51 @@
+"""BDD test skeleton — Mode A (comments-in-.py).
+
+This file is the FORMULATION artifact (Stage 2 output). It contains ONLY:
+- Test function names (one per scenario)
+- Given/When/Then behaviour comments as docstrings
+- `pass` placeholders
+
+NO assertions, NO fixtures, NO imports of the system under test.
+The user must confirm these scenarios (Stage 3 gate) before any test
+body is implemented (Stage 4).
+"""
+from __future__ import annotations
+
+
+# ── Feature: <feature name> ──────────────────────────────────────────
+
+
+def test_<scenario_1_snake_case>() -> None:
+    """Scenario: <one-line scenario title>.
+
+    Given <initial context / state>
+    When <concrete action>
+    Then <measurable outcome>
+    And <additional assertion if needed>
+    """
+    pass
+
+
+def test_<scenario_2_snake_case>() -> None:
+    """Scenario: <negative path or edge case>.
+
+    Given <context>
+    When <action that should be blocked / produce error>
+    Then <the system refuses / errors / stays unchanged>
+    """
+    pass
+
+
+def test_<scenario_3_snake_case>() -> None:
+    """Scenario Outline: <parametrised behaviour>.
+
+    Given <context with <placeholder>>
+    When <action>
+    Then <result depends on <placeholder>>
+
+    Examples:
+      | <column> | <expected> |
+      | value_1  | result_1   |
+      | value_2  | result_2   |
+    """
+    pass

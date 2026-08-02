@@ -1,0 +1,23 @@
+{
+  "name": "petfish-bdd-pack",
+  "version": "0.1.0",
+  "description": "BDD-driven development discipline skill — enforce Gherkin-first, gate before code, strict TDD Red-Green-Refactor. For Python projects using pytest. Brownfield-friendly.",
+  "author": "petfish-team",
+  "profile": "code",
+  "license": "MIT",
+  "homepage": "https://github.com/kylecui/petfishFramework",
+  "skills": ["bdd-driven-development"],
+  "contents": [
+    ".opencode/skills/bdd-driven-development/SKILL.md",
+    ".opencode/skills/bdd-driven-development/references/bdd-methodology.md",
+    ".opencode/skills/bdd-driven-development/references/gherkin-reference.md",
+    ".opencode/skills/bdd-driven-development/references/tdd-three-laws.md",
+    ".opencode/skills/bdd-driven-development/references/brownfield-adoption.md",
+    ".opencode/skills/bdd-driven-development/references/testing-anti-patterns.md",
+    ".opencode/skills/bdd-driven-development/scripts/scaffold_test_stubs.py",
+    ".opencode/skills/bdd-driven-development/scripts/validate_gherkin.py",
+    ".opencode/skills/bdd-driven-development/assets/test_skeleton_py.tmpl",
+    ".opencode/skills/bdd-driven-development/assets/feature_template.feature",
+    ".opencode/skills/bdd-driven-development/evals/evals.json"
+  ]
+}

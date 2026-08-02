@@ -66,6 +66,7 @@ tasks/      任务与 backlog
 1. **Release 版本号 grep checklist** — 每次发布前必须 grep 旧版本号。`SECURITY.md` 的 Supported Versions 表是版本敏感文件，但 `pre_release.py` 不检查它。发布前手动执行 `grep -rn "0\.[0-9]\+\.x" SECURITY.md` 确认当前版本。遗漏会导致外部安全审计认为项目维护停滞。
 2. **新模块必须同步 `__init__.py` 导出** — 新增 `src/petfishframework/<module>/<sub>.py` 时，必须同时在 `<module>/__init__.py` 的 `__all__` 和 import 中添加导出。否则用户无法从包顶层导入，只能走子模块路径，违反 Python 包惯例。OTelSink/SIEMSink 在 v0.4.0 发布时遗漏了此步骤。
 3. **Docker ENTRYPOINT 必须有对应的 `__main__.py`** — Dockerfile 中 `ENTRYPOINT ["python", "-m", "petfishframework"]` 要求 `src/petfishframework/__main__.py` 存在且 `main()` 返回 int 退出码。没有 `__main__.py` 时容器启动直接 crash，且 CI 不构建 Docker 所以不会发现。
+4. **BDD-first 测试编写规则** — 编写任何新测试代码前，必须先用 `bdd-driven-development` skill 产出 Gherkin Given/When/Then 行为注释的空测试文件（仅含测试函数名 + Given/When/Then docstring + `pass`），再用 `AskUserQuestion` 向用户确认场景后才写实现。跳过此门禁会导致测试编码了错误的业务假设——事后修复场景错误的成本是事前的 10 倍。存量测试不追溯；bug 修复若已有失败测试可跳过门禁直接 Red→Green。
 
 ## Architecture Decisions
 

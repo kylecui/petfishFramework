@@ -1,0 +1,94 @@
+{
+  "skill_name": "bdd-driven-development",
+  "version": "0.1.0",
+  "evals": [
+    {
+      "id": "trigger-write-tests-primary",
+      "prompt": "Help me write tests for the new credential broker module",
+      "should_trigger": true,
+      "expected_output": "Skill activates Stage 1 (Discovery), asks about behaviours, does NOT write test code yet.",
+      "assertions": [
+        "Response enters the 5-stage BDD pipeline starting with Discovery.",
+        "Response does NOT contain any assert statements or test fixture definitions.",
+        "Response mentions Given/When/Then or Gherkin as the next step."
+      ]
+    },
+    {
+      "id": "trigger-implement-feature",
+      "prompt": "Implement the rate limiter feature with tests",
+      "should_trigger": true,
+      "expected_output": "Skill activates and insists on Gherkin-first before any implementation.",
+      "assertions": [
+        "Response does NOT jump to writing production code.",
+        "Response proposes writing Gherkin scenarios first.",
+        "Response plans to stop at the user-confirmation gate before test code."
+      ]
+    },
+    {
+      "id": "trigger-explicit-bdd",
+      "prompt": "Let's do BDD for the permission engine. Write Gherkin scenarios.",
+      "should_trigger": true,
+      "expected_output": "Skill activates Stage 2 directly (user already knows they want Gherkin).",
+      "assertions": [
+        "Response produces or proposes Given/When/Then scenarios.",
+        "Response does not write test assertions yet.",
+        "Response plans to present scenarios for user confirmation."
+      ]
+    },
+    {
+      "id": "trigger-explicit-tdd",
+      "prompt": "TDD the retry module — Red Green Refactor",
+      "should_trigger": true,
+      "expected_output": "Skill activates and enforces Gherkin stubs + gate before Red phase.",
+      "assertions": [
+        "Response mentions the Iron Law or Gherkin-first requirement.",
+        "Response does not skip to writing a failing test without behaviour spec.",
+        "Response references Red-Green-Refactor as Stage 4."
+      ]
+    },
+    {
+      "id": "trigger-bug-fix-with-tests",
+      "prompt": "Fix the budget overflow bug, but write tests first",
+      "should_trigger": true,
+      "expected_output": "Skill activates; checks if a failing test already exists (exception path) or treats as new behaviour.",
+      "assertions": [
+        "Response asks whether a failing test already exists for the bug.",
+        "If no test exists, response plans the full BDD pipeline.",
+        "Response does not immediately patch the bug."
+      ]
+    },
+    {
+      "id": "no-trigger-generate-from-code",
+      "prompt": "Generate test cases from the existing source code in src/",
+      "should_trigger": false,
+      "expected_output": "Does not activate this skill. This is reverse-engineering, not BDD.",
+      "assertions": [
+        "Response does not follow the 5-stage BDD pipeline.",
+        "Response does not reference Given/When/Then Gherkin formulation.",
+        "Response may suggest the generate-test-cases skill instead."
+      ]
+    },
+    {
+      "id": "no-trigger-run-existing-tests",
+      "prompt": "Run the test suite and show me the coverage report",
+      "should_trigger": false,
+      "expected_output": "Does not activate this skill. This is test execution, not test authoring.",
+      "assertions": [
+        "Response does not enter the BDD pipeline.",
+        "Response does not propose writing Gherkin scenarios.",
+        "Response may suggest running pytest directly."
+      ]
+    },
+    {
+      "id": "no-trigger-plain-refactor",
+      "prompt": "Refactor the calculator module to use dataclasses",
+      "should_trigger": false,
+      "expected_output": "Does not activate unless tests are red or behaviour changes. Pure refactor with green tests proceeds without BDD.",
+      "assertions": [
+        "Response does not insist on writing new Gherkin scenarios.",
+        "Response treats this as a refactor, not new behaviour.",
+        "Response may note that BDD applies only if behaviour changes."
+      ]
+    }
+  ]
+}
