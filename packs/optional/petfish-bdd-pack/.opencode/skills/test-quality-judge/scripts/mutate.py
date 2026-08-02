@@ -65,6 +65,7 @@ ALL_OPERATORS: tuple[str, ...] = (
     "num_perturb",
     "return_none",
     "and_or",
+    "drop_statement",
 )
 
 #: Operators used in --quick mode.
@@ -86,6 +87,52 @@ class Mutation:
 def _line_number(content: str, offset: int) -> int:
     """Return the 1-based line number of an absolute character offset."""
     return content.count("\n", 0, offset) + 1
+
+
+def _is_skippable_line(line: str, in_docstring: bool) -> tuple[bool, bool]:
+    """Decide whether a source line must be excluded from mutation.
+
+    Returns ``(skip, new_in_docstring_state)``:
+
+    - ``skip`` is True for docstring content lines and comment-only lines
+      (stripped line starts with ``#``). Lines with code plus a trailing
+      comment (e.g. ``x = 1  # set x``) are NOT skipped.
+    - The second element is the updated triple-quote state, tracked across
+      lines for ``\"\"\"`` / ``'''`` delimited docstrings.
+
+    Limitations (text-based heuristic): a docstring opened mid-line after
+    code (``x = \"\"\"...``) does not toggle the state, and a ``'''``
+    sequence inside a ``\"\"\"`` docstring would falsely close it. Both are
+    rare enough for a lightweight mutation tool.
+    """
+    stripped = line.strip()
+    if in_docstring:
+        # Inside a docstring: skip; state ends if a delimiter appears.
+        if '"""' in stripped or "'''" in stripped:
+            return True, False
+        return True, True
+    if not stripped:
+        return False, False
+    if stripped.startswith("#"):
+        return True, False
+    if stripped.startswith('"""') or stripped.startswith("'''"):
+        delim = stripped[:3]
+        # Single-line docstring: the same delimiter appears again later.
+        if delim in stripped[3:]:
+            return True, False
+        return True, True
+    return False, False
+
+
+def _skippable_lines(content: str) -> set[int]:
+    """Return the set of 1-based line numbers excluded from mutation."""
+    skipped: set[int] = set()
+    in_docstring = False
+    for lineno, line in enumerate(content.splitlines(), 1):
+        skip, in_docstring = _is_skippable_line(line, in_docstring)
+        if skip:
+            skipped.add(lineno)
+    return skipped
 
 
 def _find_replacements(
@@ -225,6 +272,75 @@ def _scan_and_or(content: str, mutations: list[Mutation]) -> None:
     )
 
 
+# --- drop_statement ---------------------------------------------------------
+
+#: Line prefixes that mark block headers or non-droppable statements.
+_DROP_SKIP_PREFIXES: tuple[str, ...] = (
+    "def", "class", "if", "elif", "else", "for", "while", "try",
+    "except", "finally", "with", "pass", "raise", "import", "from",
+    "assert", "del", "global", "nonlocal", "yield", "break",
+    "continue", "return", "@", "#",
+)
+
+#: ``return <expr>`` (expr has no '#'; optional trailing comment preserved).
+_DROP_RETURN_RE: re.Pattern[str] = re.compile(
+    r"^[ \t]*(return[ \t]+[^\n#]+?)[ \t]*(?:\#.*)?$"
+)
+
+#: Simple assignment ``target = expr`` (single '=' — '==' never matches
+#: because the expr's first character class rejects a second '=').
+_DROP_ASSIGN_RE: re.Pattern[str] = re.compile(
+    r"^[ \t]*"
+    r"([A-Za-z_]\w*(?:(?:\.[A-Za-z_]\w*)|(?:\[[^\]\n]*\]))*"
+    r"[ \t]*=[ \t]*[^\n#=][^\n#]*?)"
+    r"[ \t]*(?:\#.*)?$"
+)
+
+
+def _scan_drop_statement(content: str, mutations: list[Mutation]) -> None:
+    """Drop simple single-line assignments / returns: ``stmt`` -> ``pass``.
+
+    Unlike ``return_none`` (which keeps the return but replaces its value),
+    this removes the whole statement. Skips block headers, ``pass`` lines,
+    comments, and statements that continue onto the next line.
+    """
+    offset = 0
+    depth = 0  # bracket depth at the start of the current line
+    for line in content.splitlines(keepends=True):
+        body = line.rstrip("\r\n")
+        stripped = body.strip()
+        stmt: re.Match[str] | None = None
+        if (
+            depth == 0
+            and stripped
+            and stripped != "pass"
+            and not stripped.endswith(":")
+        ):
+            first = stripped.split(None, 1)[0].rstrip("([{")
+            if first not in _DROP_SKIP_PREFIXES and not body.rstrip().endswith(
+                ("\\", "(", "[", "{", ",")
+            ):
+                stmt = _DROP_RETURN_RE.match(body) or _DROP_ASSIGN_RE.match(body)
+        if stmt is not None:
+            start = offset + stmt.start(1)
+            mutations.append(
+                Mutation(
+                    line=_line_number(content, start),
+                    operator="drop_statement",
+                    original=stmt.group(1),
+                    mutated="pass",
+                    start=start,
+                    end=offset + stmt.end(1),
+                )
+            )
+        offset += len(line)
+        # Heuristic bracket tracking (strings not parsed) to detect
+        # lines that continue a multi-line statement.
+        depth += sum(body.count(c) for c in "([{") - sum(
+            body.count(c) for c in ")]}"
+        )
+
+
 ScannerFn = Callable[[str, list[Mutation]], None]
 
 SCANNERS: dict[str, ScannerFn] = {
@@ -236,14 +352,18 @@ SCANNERS: dict[str, ScannerFn] = {
     "num_perturb": _scan_num_perturb,
     "return_none": _scan_return_none,
     "and_or": _scan_and_or,
+    "drop_statement": _scan_drop_statement,
 }
 
 
 def find_mutations(content: str, operators: list[str]) -> list[Mutation]:
     """Scan ``content`` for all mutation points of the given operators."""
+    skipped = _skippable_lines(content)
     mutations: list[Mutation] = []
     for name in operators:
         SCANNERS[name](content, mutations)
+    # Exclude docstring content and comment-only lines.
+    mutations = [mu for mu in mutations if mu.line not in skipped]
     # Deterministic order: by file offset, then operator name.
     mutations.sort(key=lambda mu: (mu.start, mu.operator))
     return mutations

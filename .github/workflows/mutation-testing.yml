@@ -1,0 +1,47 @@
+name: Mutation Testing (nightly)
+
+on:
+  schedule:
+    # 2 AM UTC every night
+    - cron: '0 2 * * *'
+  workflow_dispatch: {}
+  pull_request:
+    paths:
+      - 'src/petfishframework/permissions/**'
+      - 'src/petfishframework/reliability/**'
+      - 'src/petfishframework/core/events/**'
+
+jobs:
+  mutate:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        module:
+          - src/petfishframework/permissions/risk_policy.py
+          - src/petfishframework/permissions/model.py
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v3
+
+      - name: Install dependencies
+        run: uv sync --extra openai --extra anthropic
+
+      - name: Run mutation testing on ${{ matrix.module }}
+        run: |
+          uv run .opencode/skills/test-quality-judge/scripts/mutate.py \
+            "${{ matrix.module }}" \
+            --test-cmd "uv run pytest tests/ -q -m 'not integration' --tb=no" \
+            --threshold 0.7 \
+            --timeout 120
+
+      - name: Upload mutation report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mutation-report-${{ strategy.job-index }}
+          path: |
+            mutation-report.txt
+          if-no-files-found: ignore

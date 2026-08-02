@@ -99,3 +99,70 @@ seconds with 50 mutants, expect ~8 minutes. Strategies:
   with stable tests.
 
 See [SKILL.md](../SKILL.md) for the enforcement workflow.
+
+## Choosing Operators for Different Code Types
+
+Not all operators are equally useful for all code. Match operators to the
+code under test:
+
+| Code type | High-value operators | Low-value operators |
+|---|---|---|
+| Business logic (if/else heavy) | `eq_ne`, `bool_flip`, `gt_gte`, `and_or` | `num_perturb` |
+| Data transformations | `add_sub`, `num_perturb`, `return_none` | `and_or` |
+| Validation/guards | `eq_ne`, `bool_flip`, `return_none` | `add_sub` |
+| Configuration/dataclasses | `num_perturb` (default values) | `and_or`, `gt_gte` |
+| String processing | `return_none` (check output asserted) | `eq_ne` (string == rare) |
+
+Use `--operators` to restrict to high-value operators for the target module.
+This reduces runtime without losing signal.
+
+## Reading Mutation Reports
+
+A mutation report has three signal layers:
+
+**Layer 1 — Overall score**: the headline number. 80%+ is good. Below 70%
+means significant gaps. But the score alone doesn't tell you WHERE the gaps are.
+
+**Layer 2 — Surviving mutants by operator**: if all survivors are
+`return_none`, your tests call functions but don't assert on return values.
+If all survivors are `eq_ne`, your branch conditions aren't tested. The
+operator distribution reveals the TYPE of gap.
+
+**Layer 3 — Surviving mutants by location**: `file:line` tells you exactly
+which code lacks killing tests. Cluster survivors by function — a function
+with 5 survivors is a bigger gap than 5 functions with 1 survivor each.
+
+Action: sort survivors by location, not by operator. Fix the densest
+clusters first.
+
+## Common False Positives
+
+Text-based mutators (like `mutate.py`) operate on source text, not AST.
+This means they can produce false positives — mutations that fire on
+non-code:
+
+| False positive | Cause | Fix |
+|---|---|---|
+| Mutating `return` inside a docstring | Text matcher finds "return" in `"""...return..."""` | Skip lines inside triple-quoted strings |
+| Mutating `==` inside a string literal | `"if x == y"` in a string | Skip lines that are pure string assignments |
+| Mutating numeric literals in comments | `# limit: 100` | Skip comment-only lines |
+| Mutating `True`/`False` in type hints | `def f(x: bool = True)` — changing default may be equivalent | Classify as equivalent during triage |
+
+The mutator includes heuristics to skip docstrings and comments, but
+text-based matching is inherently imperfect. Always triage survivors before
+acting on them.
+
+## Integration with Coverage
+
+Mutation testing and coverage are complementary:
+
+| Metric | Measures | Blind spot |
+|---|---|---|
+| Line coverage | Which lines execute | Doesn't verify assertions exist |
+| Branch coverage | Which branches take | Doesn't verify both sides are asserted |
+| Mutation score | Whether tests detect bugs | Slow; can't run on every commit |
+
+Use coverage for fast feedback (every commit). Use mutation testing for
+deep validation (nightly or pre-release). A module with 100% line coverage
+but 60% mutation score has tests that execute code without verifying
+behaviour — the most dangerous form of false confidence.

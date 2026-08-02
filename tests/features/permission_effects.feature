@@ -67,7 +67,7 @@ Feature: Permission Decision Effects
     Given a policy that returns DEGRADE due to high-risk audit failure
     When the permission engine processes the response
     Then the decision effect is DEGRADE
-    And the response quality is reduced (e.g. model tier downgraded or fields omitted)
+    And the response quality is reduced
 
   # ── Composite policy: deny-overrides ───────────────────────────────
 
