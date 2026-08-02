@@ -1,0 +1,59 @@
+{
+  "skill_name": "test-quality-judge",
+  "version": "0.1.0",
+  "evals": [
+    {
+      "id": "trigger-mutation-test",
+      "prompt": "Run mutation testing on the permission engine",
+      "should_trigger": true,
+      "expected_output": "Skill activates Stage 1 (target selection), then runs mutate.py on the specified module.",
+      "assertions": [
+        "Response enters the mutation testing workflow (target → mutate → execute → report).",
+        "Response does NOT run mutations on test files.",
+        "Response plans to report mutation score and surviving mutants."
+      ]
+    },
+    {
+      "id": "trigger-test-quality-check",
+      "prompt": "Are our tests actually good? Do they bite?",
+      "should_trigger": true,
+      "expected_output": "Skill activates and explains mutation testing as the method to verify test quality.",
+      "assertions": [
+        "Response explains mutation testing (not coverage).",
+        "Response proposes running mutate.py on specific modules.",
+        "Response mentions mutation score and threshold."
+      ]
+    },
+    {
+      "id": "trigger-after-bdd-verification",
+      "prompt": "We just finished the BDD feature. Now validate that the tests have teeth.",
+      "should_trigger": true,
+      "expected_output": "Skill activates as the post-BDD verification step.",
+      "assertions": [
+        "Response connects to the BDD workflow (Stage 5 follow-up).",
+        "Response proposes mutating the newly implemented module.",
+        "Response mentions the feedback loop (surviving mutant → new BDD scenario)."
+      ]
+    },
+    {
+      "id": "no-trigger-write-tests",
+      "prompt": "Write tests for the new module",
+      "should_trigger": false,
+      "expected_output": "Does not activate this skill. Test writing belongs to bdd-driven-development.",
+      "assertions": [
+        "Response does not enter the mutation testing workflow.",
+        "Response may suggest bdd-driven-development instead."
+      ]
+    },
+    {
+      "id": "no-trigger-coverage",
+      "prompt": "Show me the test coverage report",
+      "should_trigger": false,
+      "expected_output": "Does not activate. Coverage measurement is a different concern.",
+      "assertions": [
+        "Response does not run mutations.",
+        "Response may suggest pytest --cov directly."
+      ]
+    }
+  ]
+}

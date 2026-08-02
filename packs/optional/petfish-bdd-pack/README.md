@@ -1,22 +1,27 @@
 # petfish-bdd-pack
 
-> BDD-driven development discipline skill for OpenCode / Agent Skills standard.
-> Enforce **Gherkin scenarios before test code**, gate via user confirmation,
-> then drive strict TDD Red-Green-Refactor.
+> BDD-driven development + mutation testing discipline skill pack for
+> OpenCode / Agent Skills standard. Enforce **Gherkin scenarios before test
+> code**, gate via user confirmation, drive strict TDD Red-Green-Refactor,
+> then validate tests bite via mutation testing.
 
 ## What this pack provides
 
-A single skill — `bdd-driven-development` — that enforces a 5-stage pipeline:
+Two complementary skills:
 
-```
-Discovery → Formulation → Gate → Automation → Verification
-```
+### 1. `bdd-driven-development` — Test-first enforcement
 
-The core rule (The Iron Law):
+5-stage pipeline: Discovery → Formulation → Gate → Automation → Verification.
 
-> No test implementation code is written before:
-> 1. A Gherkin-schema behaviour specification exists (Given/When/Then).
-> 2. The user has confirmed the scenarios via `AskUserQuestion`.
+The Iron Law: no test code before Gherkin stubs + user confirmation.
+
+### 2. `test-quality-judge` — Mutation testing
+
+5-stage pipeline: Target → Mutate → Execute → Report → Triage.
+
+Validates that tests actually catch bugs by introducing small defects
+(`==` → `!=`, `True` → `False`, numeric ±1) and checking if any test fails.
+Surviving mutants indicate test quality gaps.
 
 ## Why this pack exists
 
