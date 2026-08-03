@@ -170,3 +170,73 @@ def test_partial_allow_filters_args() -> None:
     agent.run("test")
     assert "name" in _captured_args, "allowed field was filtered out"
     assert "ssn" not in _captured_args, "blocked field was NOT filtered"
+
+
+# ── DenyByDefaultPolicy unit tests (kill and_or mutant on line 137) ──
+
+
+def test_deny_by_default_allows_whitelisted_tool() -> None:
+    """DenyByDefaultPolicy allows tools in the whitelist."""
+    from petfishframework.permissions.model import (
+        AccessContext,
+        Action,
+        DenyByDefaultPolicy,
+        Resource,
+        Subject,
+    )
+
+    policy = DenyByDefaultPolicy(allowed_tools={"calculator"})
+    decision = policy.evaluate(
+        Subject(),
+        Action(type="call", tool_name="calculator"),
+        Resource(),
+        AccessContext(),
+    )
+    assert decision.effect == DecisionEffect.ALLOW
+    assert "whitelisted" in decision.reason
+
+
+def test_deny_by_default_denies_non_whitelisted_tool() -> None:
+    """DenyByDefaultPolicy denies tools NOT in the whitelist (kills and_or mutant line 137).
+
+    The and_or mutation ('and' → 'or') would make the condition:
+        if action.tool_name or action.tool_name in self.allowed_tools:
+    which is True for ANY truthy tool_name, bypassing the whitelist entirely.
+    """
+    from petfishframework.permissions.model import (
+        AccessContext,
+        Action,
+        DenyByDefaultPolicy,
+        Resource,
+        Subject,
+    )
+
+    policy = DenyByDefaultPolicy(allowed_tools={"calculator"})
+    decision = policy.evaluate(
+        Subject(),
+        Action(type="call", tool_name="unknown_tool"),
+        Resource(),
+        AccessContext(),
+    )
+    assert decision.effect == DecisionEffect.DENY
+    assert "not in whitelist" in decision.reason
+
+
+def test_deny_by_default_denies_none_tool_name() -> None:
+    """DenyByDefaultPolicy denies when tool_name is None (edge case)."""
+    from petfishframework.permissions.model import (
+        AccessContext,
+        Action,
+        DenyByDefaultPolicy,
+        Resource,
+        Subject,
+    )
+
+    policy = DenyByDefaultPolicy(allowed_tools={"calculator"})
+    decision = policy.evaluate(
+        Subject(),
+        Action(type="call", tool_name=None),
+        Resource(),
+        AccessContext(),
+    )
+    assert decision.effect == DecisionEffect.DENY

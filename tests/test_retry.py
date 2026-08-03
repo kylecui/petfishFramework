@@ -239,3 +239,143 @@ def test_retryable_error_attributes(fast_policy: RetryPolicy) -> None:
     assert isinstance(err.original, RuntimeError)
     assert err.attempts == 4
     assert err.elapsed_s >= 0.0
+
+
+# ── Mutation-killing tests: state tracking, defaults, jitter, messages ──
+
+
+def test_default_retry_policy_values() -> None:
+    """Default RetryPolicy has the expected field values (kills num_perturb on line 43)."""
+    p = RetryPolicy()
+    assert p.max_retries == 3
+    assert p.initial_delay == 1.0
+    assert p.backoff_factor == 2.0
+    assert p.jitter is True
+    assert p.max_delay == 60.0
+
+
+def test_jitter_delays_within_range() -> None:
+    """With jitter=True, delays stay within ±25% of the capped base (kills lines 60-61)."""
+    policy = RetryPolicy(initial_delay=10.0, backoff_factor=1.0, max_delay=10.0, jitter=True)
+    for _ in range(50):
+        delay = policy.delay_for_attempt(0)
+        # base = 10.0, jitter ±2.5 → [7.5, 12.5]
+        assert 7.0 <= delay <= 13.0, f"jitter delay {delay} outside expected range"
+
+
+def test_retryable_error_message_content(fast_policy: RetryPolicy) -> None:
+    """RetryableError message includes attempt count and original exception (kills lines 100, 102)."""
+    model = AlwaysFailModel()
+    wrapped = retry_model_adapter(model, fast_policy)
+    with pytest.raises(RetryableError) as excinfo:
+        wrapped.query(ModelRequest(messages=()))
+    msg = str(excinfo.value)
+    assert "4 attempt" in msg, f"message missing attempt count: {msg}"
+    assert "Transient failure" in msg or "Failure" in msg, f"message missing original error: {msg}"
+
+
+def test_retry_count_reset_between_calls(fast_policy: RetryPolicy) -> None:
+    """retry_count and last_error are reset at the start of each query() (kills lines 166-167)."""
+    model = FlakyModel(fail_count=1, response=ModelResponse(content="ok"))
+    wrapped = retry_model_adapter(model, fast_policy)
+    wrapped.query(ModelRequest(messages=()))
+    assert wrapped.retry_count == 1
+    assert wrapped.last_error is not None
+
+    # Second call with a clean model — retry_count should reset to 0
+    model2 = FlakyModel(fail_count=0, response=ModelResponse(content="ok2"))
+    wrapped2 = retry_model_adapter(model2, fast_policy)
+    # Reuse same wrapper to test reset: use wrapped.inner = model2... can't (frozen? no, RetryModelAdapter is not frozen)
+    # Instead: call the SAME wrapped again — it should reset retry_count
+    wrapped.inner = model2  # type: ignore
+    wrapped.query(ModelRequest(messages=()))
+    assert wrapped.retry_count == 0
+    assert wrapped.last_error is None
+
+
+def test_last_error_set_after_successful_retry(fast_policy: RetryPolicy) -> None:
+    """After a successful retry, last_error holds the last failed attempt's error (kills line 182)."""
+    model = FlakyModel(fail_count=2, response=ModelResponse(content="ok"))
+    wrapped = retry_model_adapter(model, fast_policy)
+    wrapped.query(ModelRequest(messages=()))
+    assert wrapped.retry_count == 2
+    assert wrapped.last_error is not None
+    assert isinstance(wrapped.last_error, RuntimeError)
+    assert "Transient failure 2" in str(wrapped.last_error)
+
+
+def test_reset_stats_clears_state(fast_policy: RetryPolicy) -> None:
+    """reset_stats() clears retry_count and last_error (kills lines 218-219)."""
+    model = FlakyModel(fail_count=1, response=ModelResponse(content="ok"))
+    wrapped = retry_model_adapter(model, fast_policy)
+    wrapped.query(ModelRequest(messages=()))
+    assert wrapped.retry_count == 1
+    assert wrapped.last_error is not None
+
+    wrapped.reset_stats()
+    assert wrapped.retry_count == 0
+    assert wrapped.last_error is None
+
+
+async def test_async_retryable_error_message(fast_policy: RetryPolicy) -> None:
+    """Async RetryableError message includes attempt count and original (kills lines 137, 139)."""
+    model = AlwaysFailModel()
+    wrapped = retry_model_adapter(model, fast_policy)
+    with pytest.raises(RetryableError) as excinfo:
+        await wrapped.query_async(ModelRequest(messages=()))
+    msg = str(excinfo.value)
+    assert "4 attempt" in msg, f"async message missing attempt count: {msg}"
+
+
+async def test_async_retry_count_and_last_error_on_failure(fast_policy: RetryPolicy) -> None:
+    """Async query sets retry_count and last_error on failure (kills lines 192-193, 205-206)."""
+    model = AlwaysFailModel()
+    wrapped = retry_model_adapter(model, fast_policy)
+    with pytest.raises(RetryableError):
+        await wrapped.query_async(ModelRequest(messages=()))
+    assert wrapped.retry_count == 3
+    assert wrapped.last_error is not None
+    assert isinstance(wrapped.last_error, RuntimeError)
+
+
+async def test_async_retry_count_reset_between_calls(fast_policy: RetryPolicy) -> None:
+    """Async retry_count/last_error reset at start of each query_async (kills lines 192-193)."""
+    model = FlakyModel(fail_count=1, response=ModelResponse(content="ok"))
+    wrapped = retry_model_adapter(model, fast_policy)
+    await wrapped.query_async(ModelRequest(messages=()))
+    assert wrapped.retry_count == 1
+    assert wrapped.last_error is not None
+
+    # Second call resets
+    model2 = FlakyModel(fail_count=0, response=ModelResponse(content="ok2"))
+    wrapped.inner = model2  # type: ignore
+    await wrapped.query_async(ModelRequest(messages=()))
+    assert wrapped.retry_count == 0
+    assert wrapped.last_error is None
+
+
+class AsyncOnlyModel:
+    """A model whose query is truly async (kills line 198 — async inner path)."""
+
+    name = "async_only"
+
+    def __init__(self, fail_count: int, response: ModelResponse):
+        self._fail = fail_count
+        self._resp = response
+        self._calls = 0
+
+    async def query(self, request: ModelRequest) -> ModelResponse:
+        self._calls += 1
+        if self._calls <= self._fail:
+            raise RuntimeError(f"async fail {self._calls}")
+        return self._resp
+
+
+async def test_async_inner_model_retries(fast_policy: RetryPolicy) -> None:
+    """RetryModelAdapter handles a truly async inner model (kills line 198)."""
+    response = ModelResponse(content="async ok")
+    model = AsyncOnlyModel(fail_count=1, response=response)
+    wrapped = retry_model_adapter(model, fast_policy)
+    result = await wrapped.query_async(ModelRequest(messages=()))
+    assert result is response
+    assert wrapped.retry_count == 1

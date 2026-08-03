@@ -6,10 +6,9 @@ permission gate (SARC), cost accounting (Budget), and audit events.
 from __future__ import annotations
 
 import asyncio
-import copy
 import threading
 from collections.abc import Iterator
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Callable
 
 if TYPE_CHECKING:
@@ -20,13 +19,9 @@ if TYPE_CHECKING:
 
 from petfishframework.credentials import CredentialBroker
 from petfishframework.permissions.model import (
-    AccessContext,
-    Action,
     Decision,
     DecisionEffect,
     PermissionPolicy,
-    Resource,
-    Subject,
 )
 from petfishframework.reliability.cost import CostAccountant
 from petfishframework.reliability.retry import RetryableError
@@ -37,6 +32,7 @@ from .budget_guard import BudgetGuard
 from .contracts import Environment, ModelAdapter, Retriever, Tool
 from .errors import ToolErrorCode, ToolExecutionError, ToolInternalError
 from .events import EventEmitter
+from .permission_gate import PermissionGate, _apply_mask_to_dict
 from .types import (
     Budget,
     ModelRequest,
@@ -54,40 +50,6 @@ class _ExecutionBlocked(Exception):
     def __init__(self, result: ToolResult) -> None:
         self.result = result
         super().__init__("tool execution blocked by pre-execution gate")
-
-
-def _apply_mask_to_dict(data: dict, mask_fields: tuple[str, ...]) -> dict:
-    """Apply mask to a dict, supporting flat keys and dot-path nested keys.
-
-    Flat: "ssn" → redacts top-level key
-    Nested: "user.ssn" → redacts nested field
-    """
-    result = copy.deepcopy(data)
-    for field_path in mask_fields:
-        parts = field_path.split(".")
-        if len(parts) == 1:
-            if parts[0] in result:
-                result[parts[0]] = "[MASKED]"
-        else:
-            _mask_nested(result, parts)
-    return result
-
-
-def _mask_nested(data: Any, path_parts: list[str]) -> None:
-    """Recursively mask a nested field following dot-path."""
-    if not isinstance(data, dict) or not path_parts:
-        return
-    key = path_parts[0]
-    if len(path_parts) == 1:
-        if key in data:
-            data[key] = "[MASKED]"
-    else:
-        if key in data and isinstance(data[key], dict):
-            _mask_nested(data[key], path_parts[1:])
-        elif key in data and isinstance(data[key], list):
-            for item in data[key]:
-                if isinstance(item, dict):
-                    _mask_nested(item, path_parts[1:])
 
 
 @dataclass
@@ -145,6 +107,22 @@ class RuntimeEnvironment(Environment):
         """
         return BudgetGuard(budget=self.budget, accountant=self._costs)
 
+    @property
+    def _permission_gate(self) -> PermissionGate:
+        """Permission gating collaborator (PR2 strangler-fig extraction).
+
+        Reads ``self.policy``/``self.approval_store``/``self.session_id``/
+        ``self.execution_context`` at call time so post-construction
+        reassignment of any of them still takes effect, exactly as the
+        pre-extraction inline code did.
+        """
+        return PermissionGate(
+            policy=self.policy,
+            approval_store=self.approval_store,
+            session_id=self.session_id,
+            execution_context=self.execution_context,
+        )
+
     def tools(self) -> list[Tool]:
         """Return visible tools.
 
@@ -181,24 +159,17 @@ class RuntimeEnvironment(Environment):
 
         # Pre-execution blocks — tool must NOT run
         if effect == DecisionEffect.DENY:
-            event_type = (
-                "tool.approval_required"
-                if (decision.reason or "").startswith("approval_required")
-                else None
-            )
+            reason, event_type = self._permission_gate.deny_block(decision)
             return self._block_tool(
-                ref, args, decision.reason or "denied", effect, executed=False, event_type=event_type
+                ref, args, reason, effect, executed=False, event_type=event_type
             )
 
         if effect == DecisionEffect.REQUIRE_APPROVAL:
-            request_id = ""
-            if (decision.reason or "").startswith("approval_required: "):
-                request_id = decision.reason.split(": ", 1)[1]
-            event_extras = {"request_id": request_id} if request_id else None
+            reason, event_extras = self._permission_gate.approval_block(decision)
             return self._block_tool(
                 ref,
                 args,
-                decision.reason or "approval required",
+                reason,
                 effect,
                 executed=False,
                 event_extras=event_extras,
@@ -225,24 +196,17 @@ class RuntimeEnvironment(Environment):
             return self._block_tool(ref, args, "unknown tool", effect, executed=False)
 
         if effect == DecisionEffect.DENY:
-            event_type = (
-                "tool.approval_required"
-                if (decision.reason or "").startswith("approval_required")
-                else None
-            )
+            reason, event_type = self._permission_gate.deny_block(decision)
             return self._block_tool(
-                ref, args, decision.reason or "denied", effect, executed=False, event_type=event_type
+                ref, args, reason, effect, executed=False, event_type=event_type
             )
 
         if effect == DecisionEffect.REQUIRE_APPROVAL:
-            request_id = ""
-            if (decision.reason or "").startswith("approval_required: "):
-                request_id = decision.reason.split(": ", 1)[1]
-            event_extras = {"request_id": request_id} if request_id else None
+            reason, event_extras = self._permission_gate.approval_block(decision)
             return self._block_tool(
                 ref,
                 args,
-                decision.reason or "approval required",
+                reason,
                 effect,
                 executed=False,
                 event_extras=event_extras,
@@ -372,8 +336,8 @@ class RuntimeEnvironment(Environment):
         idempotency cache, rate limit, MASK input, credential injection.
         """
         # Pre-execution arg rewriting
-        if effect == DecisionEffect.PARTIAL_ALLOW and decision.allowed_fields is not None:
-            args = {k: v for k, v in args.items() if k in decision.allowed_fields}
+        if effect == DecisionEffect.PARTIAL_ALLOW:
+            args = self._permission_gate.filter_allowed_args(decision, args)
 
         # Gate 1: schema validation (after PARTIAL_ALLOW filter, before MASK input)
         if self.schema_validator is not None:
@@ -428,8 +392,8 @@ class RuntimeEnvironment(Environment):
                 )
 
         # Pre-execution: input mask (strip/redact sensitive fields from args)
-        if effect == DecisionEffect.MASK and decision.input_mask_fields:
-            args = _apply_mask_to_dict(args, decision.input_mask_fields)
+        if effect == DecisionEffect.MASK:
+            args = self._permission_gate.apply_input_mask(decision, args)
 
         # Credential injection
         self._maybe_inject_credential(tool, args)
@@ -606,13 +570,7 @@ class RuntimeEnvironment(Environment):
 
         # Post-execution: output mask
         if effect == DecisionEffect.MASK:
-            if decision.output_mask_fields and isinstance(result.value, dict):
-                result = ToolResult(
-                    value=_apply_mask_to_dict(result.value, decision.output_mask_fields),
-                    masked=True,
-                )
-            else:
-                result = ToolResult(value="[MASKED]", masked=True)
+            result = self._permission_gate.apply_output_mask(decision, result)
 
         return self._record_tool_call(
             ref, args, tool, decision, result, executed=True, duration_ms=duration_ms
@@ -734,40 +692,7 @@ class RuntimeEnvironment(Environment):
     def _prepare_tool_call(self, ref: ToolRef, args: dict) -> tuple[Tool | None, Decision]:
         """Permission gate for tool calls; shared by sync and async paths."""
         tool = self._find_tool(ref.name)
-
-        if self.execution_context is not None:
-            subject = self.execution_context.to_subject()
-        else:
-            subject = Subject()
-        action = Action(type="call", tool_name=ref.name, args=args)
-        resource = Resource(type="tool", classification="public")
-        context = AccessContext(session_id=self.session_id, step=0)
-        decision = self.policy.evaluate(subject, action, resource, context)
-
-        if decision.effect == DecisionEffect.REQUIRE_APPROVAL:
-            if self.approval_store is not None:
-                import hashlib
-                import json
-
-                args_hash = hashlib.sha256(
-                    json.dumps(args, sort_keys=True, default=str).encode()
-                ).hexdigest()[:16]
-                request = self.approval_store.create(
-                    session_id=self.session_id,
-                    tool_name=ref.name,
-                    args_hash=args_hash,
-                    policy_version="v1",
-                )
-                decision = replace(
-                    decision, reason=f"approval_required: {request.request_id}"
-                )
-            else:
-                decision = replace(
-                    decision,
-                    effect=DecisionEffect.DENY,
-                    reason=f"approval_required_no_store: {decision.reason}",
-                )
-
+        decision = self._permission_gate.evaluate(ref.name, args)
         return tool, decision
 
     def _block_tool(
