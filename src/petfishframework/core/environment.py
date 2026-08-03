@@ -33,6 +33,7 @@ from petfishframework.reliability.retry import RetryableError
 from petfishframework.reliability.timeout import OperationTimedOut
 from petfishframework.retrieval.policy import RetrievalPolicy
 
+from .budget_guard import BudgetGuard
 from .contracts import Environment, ModelAdapter, Retriever, Tool
 from .errors import ToolErrorCode, ToolExecutionError, ToolInternalError
 from .events import EventEmitter
@@ -125,7 +126,7 @@ class RuntimeEnvironment(Environment):
     @property
     def tool_call_count(self) -> int:
         """Number of tool calls executed in this run."""
-        return self._costs._tool_calls
+        return self._budget_guard.tool_calls
 
     @property
     def _costs(self) -> CostAccountant:
@@ -133,6 +134,16 @@ class RuntimeEnvironment(Environment):
         if self._accountant is None:
             self._accountant = CostAccountant()
         return self._accountant
+
+    @property
+    def _budget_guard(self) -> BudgetGuard:
+        """Budget enforcement collaborator (PR1 strangler-fig extraction).
+
+        Reads ``self.budget`` at call time so a post-construction budget
+        reassignment would still take effect, exactly as the pre-extraction
+        inline ``self._costs.check_budget(self.budget)`` calls did.
+        """
+        return BudgetGuard(budget=self.budget, accountant=self._costs)
 
     def tools(self) -> list[Tool]:
         """Return visible tools.
@@ -285,7 +296,7 @@ class RuntimeEnvironment(Environment):
         Events recorded: ``model.stream_start`` and ``model.stream_end``.
         """
         with self._state_lock:
-            self._costs.check_budget(self.budget)
+            self._budget_guard.check()
 
         self.events.emit(
             "model.stream_start",
@@ -317,8 +328,7 @@ class RuntimeEnvironment(Environment):
             )
             with self._state_lock:
                 self._model_calls += 1
-                self._costs.record(usage)
-                self._costs.check_budget(self.budget)
+                self._budget_guard.track_llm(usage)
         finally:
             self.events.emit(
                 "model.stream_end",
@@ -330,7 +340,7 @@ class RuntimeEnvironment(Environment):
 
     def usage(self) -> Usage:
         """Return accumulated usage from the cost accountant."""
-        return self._costs.total()
+        return self._budget_guard.usage()
 
     def _find_tool(self, name: str) -> Tool | None:
         for t in self._tools:
@@ -669,8 +679,7 @@ class RuntimeEnvironment(Environment):
             },
         )
         with self._state_lock:
-            self._costs.record_tool_call()
-            self._costs.check_budget(self.budget)
+            self._budget_guard.track_tool_call()
         return result
 
     async def _handle_degrade_async(self, ref: ToolRef, args: dict, decision: Decision) -> ToolResult:
@@ -719,8 +728,7 @@ class RuntimeEnvironment(Environment):
             },
         )
         with self._state_lock:
-            self._costs.record_tool_call()
-            self._costs.check_budget(self.budget)
+            self._budget_guard.track_tool_call()
         return result
 
     def _prepare_tool_call(self, ref: ToolRef, args: dict) -> tuple[Tool | None, Decision]:
@@ -859,8 +867,7 @@ class RuntimeEnvironment(Environment):
         self.events.emit(event_type, event_data)
 
         with self._state_lock:
-            self._costs.record_tool_call()
-            self._costs.check_budget(self.budget)
+            self._budget_guard.track_tool_call()
         return result
 
     def _fetch_snippets(self, query: str, top_k: int) -> list[Snippet]:
@@ -924,6 +931,5 @@ class RuntimeEnvironment(Environment):
         )
 
         with self._state_lock:
-            self._costs.record(response.usage)
-            self._costs.check_budget(self.budget)
+            self._budget_guard.track_llm(response.usage)
         return response

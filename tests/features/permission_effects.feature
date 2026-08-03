@@ -78,6 +78,7 @@ Feature: Permission Decision Effects
     When the CompositePolicy evaluates the request
     Then the decision effect is DENY
     And the reason contains "composite"
+    And the reason contains "more-restrictive"
 
   @s10 @unit
   Scenario: Most restrictive effect wins when no DENY
