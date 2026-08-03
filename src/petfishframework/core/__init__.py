@@ -15,6 +15,7 @@ from .compiled import (
     TaskSpec,
 )
 from .compiler import ContextCompiler, DefaultContextCompiler
+from .contract_evaluator import ContractHarness, EvaluationResult
 from .contracts import (
     Clearance,
     Environment,
@@ -38,6 +39,11 @@ from .errors import (
 )
 from .event_store import EventStore, InMemoryEventStore, JsonEventStore
 from .events import Event, EventEmitter
+from .frozen_protocol import FrozenProtocol, PreflightResult
+from .known_bad import KnownBadFixture, validate_known_bad
+from .mechanism_atom import AdmissionResult, AdmissionStatus, MechanismAtom
+from .obligation_matrix import CellStatus, ObligationCell, ObligationFieldMatrix
+from .repair_loop import FailureClassification, FailureType, classify_failure
 from .structured import StructuredResult, parse_json, parse_structured
 from .types import (
     Budget,
@@ -112,8 +118,29 @@ __all__ = [
     # compiler
     "ContextCompiler",
     "DefaultContextCompiler",
+    # contract evaluator
+    "ContractHarness",
+    "EvaluationResult",
     # event store
     "EventStore",
     "InMemoryEventStore",
     "JsonEventStore",
+    # frozen protocol
+    "FrozenProtocol",
+    "PreflightResult",
+    # known-bad fixtures
+    "KnownBadFixture",
+    "validate_known_bad",
+    # mechanism atom
+    "AdmissionResult",
+    "AdmissionStatus",
+    "MechanismAtom",
+    # obligation matrix
+    "CellStatus",
+    "ObligationCell",
+    "ObligationFieldMatrix",
+    # repair loop
+    "FailureClassification",
+    "FailureType",
+    "classify_failure",
 ]
