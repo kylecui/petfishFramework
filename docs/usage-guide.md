@@ -15,7 +15,8 @@ pip install petfishframework
 # 带模型适配器
 pip install petfishframework[openai]      # OpenAI / OpenAI 兼容 API
 pip install petfishframework[anthropic]   # Anthropic Claude
-pip install petfishframework[mcp]         # MCP 工具集成
+pip install petfishframework               # 核心 + MCP stdio 客户端（内置）
+pip install "petfishframework[mcp-http]"   # MCP HTTP transport（可选）
 pip install petfishframework[openai,anthropic,mcp]  # 全部
 ```
 
@@ -866,3 +867,155 @@ print(chat("What language did I say I'm learning?"))  # → "Python"（记住第
 | Replay | 确定性回放 |
 | SARC | 权限控制 |
 | EventEmitter | 全链路审计 |
+
+---
+
+## 19. v1.2.0 新功能指南
+
+### 19.1 事件存储（EventStore）
+
+EventStore 提供持久化事件日志，支持审计和回放。框架提供两种实现：InMemoryEventStore（内存存储，默认）和 JsonEventStore（JSONL 文件持久化）。
+
+```python
+from petfishframework.core.event_store import JsonEventStore, InMemoryEventStore
+
+# 持久化存储（推荐生产环境）
+event_store = JsonEventStore(path="audit/events.jsonl")
+
+# 内存存储（默认，适合测试）
+event_store = InMemoryEventStore()
+
+# 通过 RuntimeEnvironment 注入
+from petfishframework.core.environment import RuntimeEnvironment
+env = RuntimeEnvironment(event_store=event_store)
+```
+
+### 19.2 上下文编译器（ContextCompiler）
+
+ContextCompiler 将任务、上下文、记忆和检索器编译为 CompiledContext，为推理策略提供结构化输入。框架提供 DefaultContextCompiler 实现。
+
+```python
+from petfishframework.core.compiler import DefaultContextCompiler
+
+# 创建编译器
+compiler = DefaultContextCompiler()
+
+# 传入 Agent（在 Agent 内部自动调用）
+agent = Agent(
+    model=model,
+    reasoning=ReAct(),
+    tools=(Calculator(),),
+    context_compiler=compiler,  # 可选，框架默认使用 DefaultContextCompiler
+)
+```
+
+### 19.3 密钥提供者（SecretProvider）
+
+SecretProvider 是可插拔的密钥管理接口，支持从内存、Vault 或云 KMS 获取密钥。InMemorySecretProvider 是默认实现。
+
+```python
+from petfishframework.credentials.provider import SecretProvider, InMemorySecretProvider
+from petfishframework.credentials import CredentialBroker
+
+# 创建内存密钥提供者
+provider = InMemorySecretProvider()
+provider.register("openai_api_key", "sk-...")
+
+# 创建带提供者的 Broker
+broker = CredentialBroker(secret_provider=provider)
+
+# 注册凭证（Broker 使用 Provider 解析）
+broker.register_credential("openai", "openai_api_key")
+
+agent = Agent(model=model, reasoning=ReAct(), credential_broker=broker)
+```
+
+### 19.4 沙箱后端（SandboxBackend）
+
+SandboxBackend 提供子进程或 Docker 容器隔离的执行环境，用于安全执行不受信任的工具。DockerSandboxBackend 需要 `docker` 包。
+
+```python
+from petfishframework.tools.docker_sandbox import DockerSandboxBackend
+
+# 创建 Docker 沙箱后端（需安装 docker）
+sandbox = DockerSandboxBackend(
+    image="python:3.12-slim",
+    mem_limit="256m"
+)
+
+# 通过 ToolGovernance 注入
+from petfishframework.tools import ToolGovernance
+governance = ToolGovernance(sandbox_backend=sandbox)
+
+agent = Agent(model=model, reasoning=ReAct(), tools=tools, tool_governance=governance)
+```
+
+### 19.5 MCP HTTP 传输
+
+除了 stdio 传输，MCP 客户端现在支持通过 HTTP 连接到远程 MCP 服务器。需要 `httpx` 包。
+
+```python
+from petfishframework.mcp import connect_http
+
+# 连接到 HTTP MCP 服务器
+client = connect_http(
+    url="https://mcp-server.example.com/mcp",
+    headers={"Authorization": "Bearer token"}
+)
+
+# 发现工具并创建 Agent
+tools = client.discover_tools()
+agent = Agent(model=model, reasoning=ReAct(), tools=tuple(tools))
+```
+
+### 19.6 契约驱动评估（ContractEvaluator）
+
+ContractEvaluator 针对受控状态变更任务提供 7 项确定性评估指标，用于回归测试和可靠性量化。给定黄金参考输出，可自动评估模型输出。
+
+```python
+from petfishframework.core.contract_evaluator import ContractHarness, EvaluationResult
+
+# 定义黄金参考输出
+golden_ref = {
+    "state_inventory": {"unknown_state": [], "forbidden_inferences": []},
+    "evidence_bindings": [{"slot_id": "s1", "evidence_ids": ["e1"]}],
+    "transition_record": {"event_id": "ev1", "state_id": "st1", "from_status": "pending", "to_status": "approved", "applied": True},
+    "transition_gate": {},
+    "retention_attestation": {}
+}
+
+# 创建评估器
+harness = ContractHarness(reference_output=golden_ref)
+
+# 评估原始输出（自动解析 JSON）
+result: EvaluationResult = harness.evaluate_raw('{"state_inventory": {...}, ...}')
+
+# 检查结果
+print(result.strict_pass)  # True/False
+print(result.pass_rate)   # 0.0-1.0
+print(result.failed_checks)  # 失败的检查项列表
+```
+
+### 19.7 能力目录（CapabilityCatalog）
+
+CapabilityCatalog 合并原生工具、工具注册表和 MCP 工具，提供统一的工具发现和路由能力。
+
+```python
+from petfishframework.tools.catalog import CapabilityCatalog
+from petfishframework.tools.registry import ToolRegistry
+
+# 创建目录
+catalog = CapabilityCatalog(
+    tools=(Calculator(),),
+    registries=(ToolRegistry(),),
+    mcp_clients=(mcp_client,)
+)
+
+# 获取所有工具
+all_tools = catalog.all_tools()
+
+# 根据任务解析可用工具（通过 IntentRouter）
+from petfishframework.core.types import Task
+task = Task(prompt="计算 17 * 23")
+resolved_tools = catalog.resolve(task)
+```

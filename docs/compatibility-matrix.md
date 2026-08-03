@@ -10,7 +10,7 @@ This document records the supported runtime, platform, and integration versions 
 | OS | Linux, macOS, Windows | Development happens on all three platforms. Windows users should note the MCP stdio path-handling caveat below. |
 | OpenAI adapter | `openai>=1.0,<2` | Verified models: `gpt-4o`, `gpt-4o-mini`, `gpt-4-turbo`, `gpt-3.5-turbo`. Install with `pip install "petfishframework[openai]"`. |
 | Anthropic adapter | `anthropic>=0.40,<1` | Verified models: `claude-3.5-sonnet`, `claude-3.5-haiku`, `claude-3-opus`. Install with `pip install "petfishframework[anthropic]"`. |
-| MCP client | stdio (built-in), HTTP (extra) | stdio is bundled with `pip install "petfishframework[mcp]"`. HTTP transport requires `pip install "petfishframework[mcp-http]"` (`httpx>=0.27,<1`). |
+| MCP client | stdio (built-in), HTTP (extra) | stdio is bundled with the core package (`pip install petfishframework`). HTTP transport requires `pip install "petfishframework[mcp-http]"` (`httpx>=0.27,<1`). |
 | MCP server | stdio JSON-RPC (MVP) | `serve_as_mcp()` exposes framework tools over stdio JSON-RPC with `initialize`, `tools/list`, and `tools/call`. Marked as MVP. |
 | OTel sink | `opentelemetry>=1.20,<2` | Optional extra. Install with `pip install "petfishframework[otel]"`. Creates spans for model, tool, and session events. Marked as Experimental. |
 | Vault adapter | `hvac>=1.0,<2` | Optional extra. Install with `pip install "petfishframework[vault]"`. Reads secrets from HashiCorp Vault via `VaultCredentialSource`. Marked as Experimental. |
@@ -23,7 +23,7 @@ This document records the supported runtime, platform, and integration versions 
 |---|---|---|
 | OpenAI models | `pip install "petfishframework[openai]"` | `openai` |
 | Anthropic models | `pip install "petfishframework[anthropic]"` | `anthropic` |
-| MCP client (stdio) | `pip install "petfishframework[mcp]"` | `mcp` |
+| MCP client (stdio) | `pip install petfishframework` | built-in (no extra) |
 | MCP HTTP transport | `pip install "petfishframework[mcp-http]"` | `mcp-http` |
 | OpenTelemetry spans | `pip install "petfishframework[otel]"` | `otel` |
 | HashiCorp Vault | `pip install "petfishframework[vault]"` | `vault` |
@@ -33,7 +33,7 @@ This document records the supported runtime, platform, and integration versions 
 All extras can be combined, for example:
 
 ```bash
-pip install "petfishframework[openai,anthropic,mcp,otel]"
+pip install "petfishframework[openai,anthropic,mcp-http,otel]"
 ```
 
 ## Tested MCP Servers
@@ -53,7 +53,7 @@ Additional servers are expected to work if they follow the MCP stdio JSON-RPC pr
 | MCP stdio path handling on Windows | MCP client | Use forward slashes or quoted paths when passing filesystem roots to `connect_stdio()`. |
 | `LATS` and `LLMPlusP` reasoning are lightweight | Reasoning strategies | Use `ReAct` for production workloads. Experimental strategies are suitable for exploration only. |
 | `OTelSink` and `VaultCredentialSource` are experimental | Observability / credentials | APIs may change in a future minor release. |
-| FastAPI server extra is not defined in `pyproject.toml` yet | Server | The code in `src/petfishframework/server/app.py` documents the `server` extra, but the dependency must be installed manually (`fastapi>=0.100,<1` and `uvicorn`) until the extra is declared. |
+| FastAPI server extra is fully declared in `pyproject.toml` | Server | Install with `pip install "petfishframework[server]"` (`fastapi>=0.100,<1`, `uvicorn>=0.30,<1`). |
 
 ## Version Migration Notes
 

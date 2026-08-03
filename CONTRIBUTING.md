@@ -8,7 +8,7 @@ Thank you for your interest in contributing! This guide covers development setup
 git clone https://github.com/kylecui/petfishFramework.git
 cd petfishFramework
 uv sync --all-extras        # install all optional deps for development
-uv run pytest               # run 187 tests
+uv run pytest               # run 582 tests
 uv run ruff check src/ tests/  # lint check
 ```
 
@@ -16,15 +16,22 @@ uv run ruff check src/ tests/  # lint check
 
 ```
 src/petfishframework/
-  core/           — types, contracts (protocols), agent, session, environment, events
-  reasoning/      — ReAct, LATS, LLM+P strategies
+  core/           — types, contracts, agent, session, environment, events,
+                    contract_evaluator, frozen_protocol, mechanism_atom,
+                    budget_guard, permission_gate, context_compiler
+  reasoning/      — ReAct, LATS, LLM+P, Reflexion strategies
   models/         — OpenAI, Anthropic, FakeModel adapters
-  tools/          — Calculator, WordSorter, PathPlanner, AgentAsTool, ToolRegistry
-  mcp/            — MCP integration (wrapper, client, stdio transport)
-  retrieval/      — MemoryRetriever, CRAG, Adaptive-RAG
-  reliability/    — Pass^k, ReplayMode, Retry, Timeout, CostReport, CostAccountant
-  permissions/    — SARC model, DecisionEffect, PermissionPolicy
-  observability/  — ListSink, ConsoleSink
+  tools/          — Calculator, PathPlanner, AgentAsTool, ToolRegistry,
+                    ToolGovernance, CapabilityCatalog, schema_validator,
+                    rate_limiter, docker_sandbox
+  mcp/            — MCP client (stdio + HTTP), server mode
+  retrieval/      — MemoryRetriever, CRAG, Adaptive-RAG, RetrievalPolicy
+  reliability/    — Pass^k, ReplayMode, Retry, Timeout, CostAccountant
+  permissions/    — SARC model, DecisionEffect, PermissionPolicy, risk_policy
+  credentials/    — CredentialBroker, ScopedToken, SecretProvider
+  policies/       — YAML Policy Engine, conditions, PolicyHotReloader
+  observability/  — ListSink, ConsoleSink, SIEMSink, OTelSink
+  server/         — FastAPI server (create_app)
 ```
 
 ## How to Add a New Tool

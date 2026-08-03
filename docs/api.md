@@ -2381,3 +2381,170 @@ class SubprocessSandboxBackend:
 ```
 
 `SubprocessSandboxBackend` runs each tool call in a child process with a whitelisted environment. It provides process isolation only — **not** a security boundary. For untrusted code, use `DockerSandboxBackend` from `petfishframework.tools.docker_sandbox`.
+
+## 22. Contract-Driven Harness Evaluation
+
+Defined in `petfishframework.core.contract_evaluator` (plus `mechanism_atom`, `repair_loop`, `frozen_protocol`). Ports the contract-driven harness reference core into the framework: given a frozen golden reference output, agent outputs are scored against 7 deterministic criteria for the controlled-state-mutation task family, making reliability a regression-testable asset. Works on plain dicts — no model dependency.
+
+### ContractHarness
+
+The `ContractHarness` evaluates agent outputs against a frozen golden reference using 7 deterministic evaluators.
+
+```python
+from petfishframework.core import ContractHarness
+
+reference = {...}  # your frozen golden output dict
+
+harness = ContractHarness(reference)
+result = harness.evaluate(model_output_dict)
+# OR: parse a raw model string (tolerates markdown fences and preamble)
+result = harness.evaluate_raw(raw_model_string)
+
+print(result.strict_pass)    # True if all 7 evaluators pass
+print(result.failed_checks)  # list of failed metric names
+print(result.pass_rate)      # ratio of passing metrics (0.0-1.0)
+```
+
+The 7 deterministic evaluators (also available as standalone `check_*` functions):
+
+1. `schema_validity` — all required sections present (`state_inventory`, `evidence_bindings`, `transition_record`, `transition_gate`, `retention_attestation`)
+2. `exact_evidence_array_preservation` — `evidence_bindings` match reference exactly (order-sensitive on `slot_id` and `evidence_ids`)
+3. `residual_unknown_vocabulary_accuracy` — `unknown_state` + `forbidden_inferences` match reference
+4. `state_transition_accuracy` — `transition_record` matches reference field-by-field
+5. `transition_gate_accuracy` — `transition_gate` matches reference (order-normalized)
+6. `retention_attestation_accuracy` — `retention_attestation` matches reference (order-normalized)
+7. `controlled_state_mutation_success` — 1.0 only when all six above pass
+
+Unparseable raw output (`evaluate_raw`) yields `strict_pass=False`, zero metrics, and `failed_checks` including `"json_parse"`. `evaluate_output(output, reference)` is a convenience one-shot returning the metrics dict.
+
+### MechanismAtom
+
+Defined in `petfishframework.core.mechanism_atom`. A fixed-input, deterministic, contract-bound operation with one golden output and a set of known-bad outputs. An atom is **ADMITTED** for composition only when its golden output passes the harness **and** every known-bad output fails it.
+
+```python
+from petfishframework.core import MechanismAtom, AdmissionStatus
+
+atom = MechanismAtom(
+    atom_id="state-transition-001",
+    task_spec={"task": "..."},
+    golden_output=reference,
+    known_bad_outputs={"kb1": broken_output},
+)
+
+result = atom.admit(harness)
+print(result.status)             # AdmissionStatus.ADMITTED or REJECTED
+print(result.reason)             # "all_checks_passed" / "golden_output_failed" / "known_bad_passed: <id>"
+print(result.known_bad_results)  # fixture_id -> passed? (all must be False to admit)
+```
+
+### Failure Classification (Repair Loop)
+
+Defined in `petfishframework.core.repair_loop`. Before repairing a failed run, `classify_failure` routes the failure into one of three mutually exclusive classes — contract defect, evaluator defect, or model failure — because each has a different repair action and a different implication for the capability claim.
+
+```python
+from petfishframework.core.repair_loop import classify_failure, FailureType
+
+result = classify_failure(
+    obligation_declared=True,
+    obligation_field_bound=True,
+    surface_form_valid=False,
+    evaluator_correct=True,
+    model_violated=True,
+)
+print(result.failure_type)       # FailureType.MODEL_FAILURE
+print(result.repair_action)      # "redesign mechanism or exclude model"
+print(result.claim_implication)  # "the only class that evidences a model limitation"
+```
+
+Decision order: missing/unbound obligation → `CONTRACT_DEFECT`; semantically valid output rejected by an unstated surface rule → `EVALUATOR_DEFECT`; declared + correctly checked + still violated → `MODEL_FAILURE`.
+
+### FrozenProtocol
+
+Defined in `petfishframework.core.frozen_protocol`. An immutable record of every variable pinned at freeze time (temperature, model id, prompt hashes, evaluator/known-bad/perturbation versions). `preflight_check` compares current artifacts against the frozen manifest before each run batch — if anything drifted, prior stability claims are void until re-frozen.
+
+```python
+from petfishframework.core import FrozenProtocol
+
+protocol = FrozenProtocol(
+    temperature=0.0,
+    model_id="Qwen/Qwen3-8B",
+    prompt_hashes={"fixture_1": "sha256..."},
+    evaluator_version="1.0.0",
+    known_bad_set_version="v1",
+    perturbation_set_version="v1",
+)
+
+preflight = protocol.preflight_check(current_artifacts)
+print(preflight.passed)      # True only when every frozen item matches
+print(preflight.mismatches)  # e.g. ["prompt_hash", "evaluator_version"]
+```
+
+## 23. Tool Error Codes
+
+Defined in `petfishframework.core.errors` (re-exported from `petfishframework.core`). `ToolErrorCode` is a `str` enum of machine-readable codes attached to `ToolResult.error_code` when a tool call fails, letting callers branch on failure class without parsing message text.
+
+| Code | Meaning |
+|---|---|
+| `SCHEMA_VALIDATION` | Tool arguments failed schema validation |
+| `TIMEOUT` | Tool execution exceeded its timeout |
+| `RATE_LIMITED` | Tool call rate limit exceeded |
+| `RETRY_EXHAUSTED` | All retry attempts failed |
+| `INTERNAL_ERROR` | Unexpected internal failure (message sanitized) |
+| `APPROVAL_REQUIRED` | Permission gate requires approval before execution |
+| `BUDGET_EXCEEDED` | Execution budget was exceeded |
+| `POLICY_DENIED` | Permission policy denied the call |
+
+Each code has a corresponding exception subclass of `ToolExecutionError` (`ToolSchemaError`, `ToolTimeoutError`, `ToolRateLimitError`, `ToolRetryExhaustedError`, `ToolInternalError`) — the sanctioned way for tool paths to signal failures that become `ToolResult(error=...)`. `ToolInternalError` never exposes the raw exception message.
+
+```python
+from petfishframework.core import ToolErrorCode
+
+result = env.call_tool(tool, args)
+if result.error_code == ToolErrorCode.RATE_LIMITED.value:
+    ...  # back off and retry later
+```
+
+## 24. RAG Authorization (RetrievalPolicy)
+
+Defined in `petfishframework.retrieval.policy`. `ResourceMetadata` carries authorization tags (clearance, tenant, allowed roles) on retrieved content, and `RetrievalPolicy` implementations filter results **before they reach the model** — the retrieval-time analogue of the tool permission gate.
+
+```python
+class RetrievalPolicy(Protocol):
+    def filter(
+        self,
+        results: list[Any],
+        context: ExecutionContext | None,
+    ) -> list[Any]: ...
+```
+
+Two built-in implementations:
+
+- `AllowAllRetrievalPolicy` — default; passes everything through (backward compatible).
+- `ClearanceRetrievalPolicy` — drops a result when its `ResourceMetadata.clearance` exceeds the subject's clearance rank (`public < internal < confidential < secret/restricted`), when it belongs to a different `tenant_id`, or when its `allowed_roles` don't intersect the subject's roles. Metadata is read from `result["resource_metadata"]` (dict results) or `result.metadata["resource_metadata"]` (object results); missing metadata defaults to public.
+
+```python
+from petfishframework.retrieval.policy import ClearanceRetrievalPolicy, ResourceMetadata
+
+policy = ClearanceRetrievalPolicy()
+visible = policy.filter(retrieved_docs, context)
+# `visible` contains only docs the execution subject is cleared to see
+```
+
+## 25. FastAPI Server
+
+Defined in `petfishframework.server.app`. `create_app` exposes an `Agent` over HTTP as a FastAPI application. Requires the optional server extra: `pip install "petfishframework[server]"` (pulls in `fastapi` + `uvicorn`).
+
+Endpoints:
+
+- `POST /run` — body `{"task": str, "budget_max_cost_usd": float?}`; runs the agent and returns `{answer, session_id, steps, cost_usd}`
+- `POST /session` — same body; creates a session without running it and returns `{session_id}`
+- `GET /health` — returns `{"status": "ok", "version": <framework version>}`
+
+```python
+from petfishframework.server.app import create_app
+
+app = create_app(agent)
+# Run with: uvicorn petfishframework.server.app:app --port 8000
+```
+
+When `budget_max_cost_usd` is provided it is wrapped in a `Budget(max_cost_usd=...)` and enforced by the runtime as usual; exceeding it raises `BudgetExceeded` server-side.

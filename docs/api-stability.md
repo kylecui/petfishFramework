@@ -15,7 +15,7 @@
 
 ### Stable
 
-These APIs have been validated by 439+ tests and are exported from the top-level package:
+These APIs have been validated by 582+ tests and are exported from the top-level package:
 
 - `Agent`, `Session` — core execution abstractions
 - `Budget`, `BudgetExceeded` — budget enforcement
@@ -47,13 +47,26 @@ These APIs work and are tested, but their signatures or semantics may change:
 - `VaultCredentialSource` — Vault adapter (needs real-world validation)
 - `OpenAIModel`, `AnthropicModel` — model adapters (provider API changes)
 - `LATS`, `LLMPlusP` — reasoning strategies (lightweight implementations)
+- `Reflexion` — self-reflection reasoning strategy (v0.5.1+, importable from `petfishframework.reasoning`)
 - `CRAGRetriever`, `AdaptiveRetriever`, `MemoryRetriever` — retrieval (lightweight)
+- `RetrievalPolicy` — RAG authorization gate (v1.2.0+)
 - `AgentAsTool` — multi-agent delegation
 - `ConversationStore`, `InMemoryConversationStore` — conversation memory
 - `StructuredResult`, `parse_json`, `parse_structured` — structured output
 - `FrameworkConfig` — configuration system (validated, stable surface)
 - `CostReport` — cost reporting format
-- `connect_stdio`, `MCPClient` — MCP client
+- `connect_stdio`, `connect_http`, `MCPClient` — MCP client (stdio built-in, HTTP via mcp-http extra)
+- `ContractHarness`, `EvaluationResult` — contract-driven output evaluation (v1.2.0+)
+- `MechanismAtom`, `AdmissionResult` — mechanism atom admission gate (v1.2.0+)
+- `FrozenProtocol`, `PreflightResult` — frozen protocol preflight check (v1.2.0+)
+- `ObligationFieldMatrix` — obligation×field coverage tracking (v1.2.0+)
+- `classify_failure`, `FailureType` — repair-loop failure classification (v1.2.0+)
+- `EventStore`, `InMemoryEventStore`, `JsonEventStore` — persistent event log (v1.2.0+)
+- `ContextCompiler` — context compilation (v1.2.0+)
+- `SecretProvider` — pluggable secret management (v1.2.0+)
+- `SandboxBackend`, `SubprocessSandboxBackend`, `DockerSandboxBackend` — tool sandboxing (v1.2.0+)
+- `CapabilityCatalog` — capability-based tool routing (v1.2.0+)
+- `ToolErrorCode` — structured tool error codes (v1.2.0+)
 - Policy condition matchers — YAML matcher set may expand/change
 - `SIEMSink.redact_keys` — redaction key set may change defaults
 

@@ -4,7 +4,7 @@
 
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://github.com/kylecui/petfishFramework/blob/master/LICENSE)
-[![Tests: 553](https://img.shields.io/badge/tests-553-brightgreen.svg)](https://github.com/kylecui/petfishFramework/tree/master/tests/)
+[![Tests: 582](https://img.shields.io/badge/tests-582-brightgreen.svg)](https://github.com/kylecui/petfishFramework/tree/master/tests/)
 
 **Status: v1.2.0 Stable** — Core runtime APIs are frozen. Selected integrations remain experimental; see [API Stability](docs/api-stability.md).
 
@@ -114,9 +114,7 @@ for event in session.replay():
 
 ## MCP Client (External Tool Servers)
 
-```bash
-pip install "petfishframework[mcp]"
-```
+MCP stdio client is built into the core package — no extra install needed.
 
 ```python
 from petfishframework.mcp import connect_stdio
@@ -162,7 +160,7 @@ print(result.summary())
 
 ## Features
 
-- **3 reasoning strategies**: ReAct, LATS (MCTS search), LLM+P (symbolic planning)
+- **4 reasoning strategies**: ReAct, LATS (MCTS search), LLM+P (symbolic planning), Reflexion (self-reflection)
 - **3 model adapters**: OpenAI, Anthropic, FakeModel (deterministic testing)
 - **3 routing axes**: ToolRegistry (auto tool selection), Adaptive-RAG (retrieval), ReasoningStrategy
 - **MCP client**: real stdio transport, tool discovery from external MCP servers
@@ -174,10 +172,14 @@ print(result.summary())
 ## Documentation
 
 - [Usage Guide](https://github.com/kylecui/petfishFramework/blob/master/docs/usage-guide.md) — full lifecycle, 18 sections
-- [API Reference](https://github.com/kylecui/petfishFramework/blob/master/docs/api.md) — 989-line definitive reference
-- [Architecture](https://github.com/kylecui/petfishFramework/blob/master/docs/architecture.md) — 5 core decisions
+- [API Reference](https://github.com/kylecui/petfishFramework/blob/master/docs/api.md) — definitive reference (2383 lines)
+- [Deployment Guide](https://github.com/kylecui/petfishFramework/blob/master/docs/deployment.md) — Docker, Compose, Vault
+- [Compatibility Matrix](https://github.com/kylecui/petfishFramework/blob/master/docs/compatibility-matrix.md) — extras, models, migration notes
+- [Threat Model](https://github.com/kylecui/petfishFramework/blob/master/docs/threat-model.md) — security boundaries
+- [Adoption Guide](https://github.com/kylecui/petfishFramework/blob/master/docs/adoption-guide.md) — decision framework
+- [Architecture](https://github.com/kylecui/petfishFramework/blob/master/docs/architecture.md) — design history (v0.2 historical)
 - [Benchmark Results](https://github.com/kylecui/petfishFramework/blob/master/docs/benchmark-results.md) — 3-tier strategy
-- [Examples](https://github.com/kylecui/petfishFramework/tree/master/examples/) — quickstart, tools+retrieval, multi-agent
+- [Examples](https://github.com/kylecui/petfishFramework/tree/master/examples/) — quickstart, tools+retrieval, multi-agent, enterprise, observability
 
 ## Enterprise PoC
 
@@ -313,7 +315,7 @@ See [API Stability Policy](docs/api-stability.md) for full classification and de
 git clone https://github.com/kylecui/petfishFramework.git
 cd petfishFramework
 uv sync --all-extras
-uv run pytest              # 538 tests
+uv run pytest              # 582 tests
 uv run ruff check src/ tests/
 ```
 

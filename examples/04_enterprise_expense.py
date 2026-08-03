@@ -1,4 +1,7 @@
-"""Example 4: Enterprise Expense Approval Agent.
+"""DEPRECATED: See examples/05_enterprise_expense.py for the complete enterprise
+demo with all 6 DecisionEffects. This file is retained for historical reference only.
+
+Example 4: Enterprise Expense Approval Agent.
 
 Demonstrates the COMBINED value of petfishFramework:
   - Custom tools (amount validator, policy checker)
