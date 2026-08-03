@@ -2,6 +2,57 @@
 
 All notable changes to petfishFramework will be documented in this file.
 
+## [1.3.0] — 2026-08-03
+
+### Contract-Driven Harness + BDD Infrastructure + Documentation Overhaul
+
+#### New Core Modules (Contract-Driven Harness)
+- **ContractEvaluator**: 7 deterministic evaluators for agent output validation against frozen golden reference (ported from MIT-licensed contract-driven-harness-study)
+- **FrozenProtocol**: SHA-256 preflight verification — all experiment variables pinned before execution for reproducibility claims
+- **MechanismAtom**: admission gate — golden output passes AND all known-bad outputs fail = ADMITTED
+- **ObligationFieldMatrix**: obligation×field coverage tracking — which obligations bind which output fields
+- **RepairLoop**: 3-way failure classification (CONTRACT_DEFECT / EVALUATOR_DEFECT / MODEL_FAILURE) per §3.4 of the paper
+- **KnownBadFixture**: must-fail-for-right-reason validation — known-bad that passes evaluation raises an error
+
+#### Architecture Refactoring (Strangler Fig)
+- **BudgetGuard** extracted from RuntimeEnvironment (PR1) — composes CostAccountant, 57 lines, mutation 100%
+- **PermissionGate** extracted from RuntimeEnvironment (PR2) — evaluate + deny_block + mask/filter, 171 lines, mutation 100%
+- RuntimeEnvironment reduced by ~140 lines via collaborator delegation
+
+#### BDD/TDD Infrastructure
+- **petfish-bdd-pack v0.2.0** published to PEtFiSh Market (2 skills: bdd-driven-development + test-quality-judge)
+- **bdd-driven-development skill**: 5-stage enforcement pipeline (Discovery → Formulation → Gate → Automation → Verification) with mandatory AskUserQuestion gate
+- **test-quality-judge skill**: mutation testing with 9 operators (eq_ne, bool_flip, gt_gte, lt_lte, add_sub, num_perturb, return_none, and_or, drop_statement), pure stdlib mutate.py
+- **pytest-bdd** added to dev dependencies
+- 5 `.feature` files: permission_effects, tool_governance, contract_evaluator, frozen_protocol_repair_loop, mechanism_atom_obligation_matrix
+- **Nightly mutation testing CI** (.github/workflows/mutation-testing.yml)
+- **Coverage gate**: `fail_under = 90` in pyproject.toml
+- AGENTS.md Gotcha #4: BDD-first rule enforced
+
+#### Testing
+- **582 tests** (was 538): +27 BDD contract harness + 7 ToolGovernance BDD
+- **0 collection errors** (was 2 — importorskip guards added)
+- Mutation scores: risk_policy 100%, permissions/model 100%, budget_guard 100%, permission_gate 100%, contract_evaluator ~86%, retry 82%
+- 4 surviving mutants killed in risk_policy via reason-string assertions
+
+#### Documentation
+- **Fixed broken `[mcp]` extra** in 5 locations (would fail pip install — no such extra in pyproject)
+- **api.md**: +4 sections (§22 ContractEvaluator, §23 ToolErrorCode, §24 RetrievalPolicy, §25 FastAPI server)
+- **usage-guide.md**: +§19 v1.2 新功能指南 (7 subsections: EventStore, ContextCompiler, SecretProvider, SandboxBackend, MCP HTTP, ContractEvaluator, CapabilityCatalog)
+- **README**: badge 553→582, "989-line"→2383, Features 3→4 strategies (+Reflexion), Documentation links expanded, test count fixed
+- **CONTRIBUTING**: 187→582 tests, Project Structure updated (12 modules added)
+- **api-stability.md**: 439→582 tests, +15 v1.2 API classifications
+- **compatibility-matrix.md**: fixed `[mcp]` references, removed stale FastAPI note
+- Stubs filled: `mcp/README.md`, `docs/development.md`
+- Historical banners: `architecture.md`, `development-plan.md`, `test-results-report.md`
+- `examples/04` deprecated (superseded by 05)
+- `__all__` exports added: SourceRef, DockerSandboxBackend
+
+#### Packaging
+- Removed dead `mcp` optional extra (code implements JSON-RPC from scratch)
+- Added `validation` optional extra (`jsonschema>=4.0` for ToolSchemaValidator)
+- pytest-bdd added to dev dependencies
+
 ## [1.2.0] — 2026-07-21
 
 ### Enterprise Hardening — All P1+P2 Items Complete
