@@ -8,8 +8,10 @@ import importlib
 import sys
 from unittest.mock import MagicMock
 
-import anthropic
 import pytest
+
+pytest.importorskip("anthropic")
+import anthropic  # noqa: E402
 
 from petfishframework.core.types import (
     Message,

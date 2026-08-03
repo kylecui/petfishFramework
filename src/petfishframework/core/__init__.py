@@ -11,6 +11,7 @@ from .compiled import (
     EvidenceBundle,
     MemorySlice,
     OutputContract,
+    SourceRef,
     TaskSpec,
 )
 from .compiler import ContextCompiler, DefaultContextCompiler
@@ -106,6 +107,7 @@ __all__ = [
     "EvidenceBundle",
     "MemorySlice",
     "OutputContract",
+    "SourceRef",
     "TaskSpec",
     # compiler
     "ContextCompiler",

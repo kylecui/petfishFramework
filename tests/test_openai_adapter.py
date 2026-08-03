@@ -9,8 +9,10 @@ import json
 import sys
 from unittest.mock import MagicMock
 
-import openai
 import pytest
+
+pytest.importorskip("openai")
+import openai  # noqa: E402
 
 from petfishframework.core.types import (
     Message,

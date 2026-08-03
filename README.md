@@ -4,9 +4,9 @@
 
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://github.com/kylecui/petfishFramework/blob/master/LICENSE)
-[![Tests: 538](https://img.shields.io/badge/tests-538-brightgreen.svg)](https://github.com/kylecui/petfishFramework/tree/master/tests/)
+[![Tests: 553](https://img.shields.io/badge/tests-553-brightgreen.svg)](https://github.com/kylecui/petfishFramework/tree/master/tests/)
 
-**Status: v1.0 Stable** — Core runtime APIs are frozen. Selected integrations remain experimental; see [API Stability](docs/api-stability.md).
+**Status: v1.2.0 Stable** — Core runtime APIs are frozen. Selected integrations remain experimental; see [API Stability](docs/api-stability.md).
 
 ## Quick Start (Zero Cost — No API Key)
 

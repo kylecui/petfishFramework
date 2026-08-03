@@ -1,5 +1,10 @@
 # petfishFramework 开发计划
 
+> **[HISTORICAL DOCUMENT]** This plan was written at v0.1.5 and all listed
+> tasks (v0.1.6 through v1.0.0) have been implemented. The current version is
+> v1.2.0. K8s deployment (v0.6.0 item) was never delivered; all other items
+> are complete. This document is retained for design rationale traceability.
+
 > 基于 v0.1.5 + 3 份用户反馈 + 生产可用路线图
 > 原则：**TDD 先行，语义闭环优先，不堆 feature**
 

@@ -1,5 +1,12 @@
 # petfishFramework — 核心架构设计（草案 v0.2）
 
+> **[HISTORICAL DOCUMENT]** This reflects the v0.2 design phase. The current
+> codebase (v1.2.0) has evolved significantly: `memory/` was never created,
+> `reasoning/` has ReAct/LATS/LLM+P/Reflexion (not ToT/graph), `observability/`
+> has OTel/SIEM sinks (not LangSmith), and `permissions/` has
+> approval/model/risk_policy (not CapabilityProjection/GrantStore). See `src/`
+> for actual module structure.
+
 > Phase 2 核心抽象设计。基于竞品分析（11 框架）+ 文献综述（SOTA 方法）+ Oracle 架构推理。
 > **v0.2 吸收**：参考仓库 `agentShield-dev`（运行时访问控制）+ `contract-driven-harness-study`（契约驱动稳定性）的实战研究成果。详见 `docs/research/reference-repos-absorption.md`。
 > **状态：待评审** — 核心决策确认后才进入详细 API 设计。

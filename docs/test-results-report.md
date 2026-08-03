@@ -1,5 +1,9 @@
 # 测试结果报告 — v0.2.1 真实验证
 
+> **[HISTORICAL DOCUMENT]** This report captures the v0.2.1 validation snapshot
+> (166 tests, dated 2026-07-05). The current test suite has 553+ tests. This
+> document is retained for validation methodology reference.
+
 > 日期：2026-07-05
 > 模型：Qwen/Qwen2.5-72B-Instruct（SiliconFlow）
 > 验证范围：单元测试 + 真实 LLM 集成 + Pass^k benchmark + 真实 MCP

@@ -8,6 +8,7 @@ from .agent_tool import AgentAsTool
 from .base import BaseTool, tool
 from .calculator import Calculator
 from .catalog import CapabilityCatalog
+from .docker_sandbox import DockerSandboxBackend
 from .governance import ToolGovernance
 from .idempotency import IdempotencyStore
 from .metadata_policy import ToolMetadataPolicy
@@ -22,6 +23,7 @@ __all__ = [
     "BaseTool",
     "Calculator",
     "CapabilityCatalog",
+    "DockerSandboxBackend",
     "IdempotencyStore",
     "RateLimitPolicy",
     "RateLimiter",
