@@ -291,19 +291,61 @@ class RunContext:
 ```python
 @dataclass(frozen=True)
 class Agent:
-    model: ModelAdapter
+    model: ModelAdapter | str
     reasoning: ReasoningStrategy = field(default_factory=lambda: ReAct())
     tools: tuple[Tool, ...] = ()
     retriever: Retriever | None = None
     permission_policy: PermissionPolicy = field(
         default_factory=lambda: DefaultAllowPolicy()
     )
+    tool_registry: Any = None         # ToolRegistry | None
+    credential_broker: Any = None     # CredentialBroker | None
+    tool_governance: Any = None       # ToolGovernance | None
+    strict: bool = False
+    execution_context: ExecutionContext | None = None
+    approval_store: InMemoryApprovalStore | None = None
+    tool_filter: set[str] | Callable[[list[Tool]], list[Tool]] | None = None
+    context_compiler: Any = None      # ContextCompiler | None
+    event_store: Any = None           # EventStore | None
+    capabilities: Any = None          # CapabilityCatalog | None
 
-    def run(self, task: str | Task, budget: Budget | None = None) -> Result: ...
-    def session(self, task: str | Task, budget: Budget | None = None) -> Session: ...
+    def run(self, task: str | Task, budget: Budget | None = None,
+            conversation_id: str | None = None,
+            conversation_store: ConversationStore | None = None) -> Result: ...
+    async def run_async(self, task: str | Task, budget: Budget | None = None,
+                        conversation_id: str | None = None,
+                        conversation_store: ConversationStore | None = None) -> Result: ...
+    def run_structured(self, task: str | Task, output_type: type[T],
+                       budget: Budget | None = None) -> StructuredResult[T]: ...
+    def run_stream(self, task: str | Task,
+                   budget: Budget | None = None) -> Iterator[str]: ...
+    def approve(self, request_id: str, approver: str = "") -> None: ...
+    def deny(self, request_id: str, reason: str = "") -> None: ...
+    def session(self, task: str | Task, budget: Budget | None = None,
+                conversation_id: str | None = None,
+                conversation_store: ConversationStore | None = None) -> Session: ...
+    async def session_async(self, task: str | Task, ...) -> Session: ...
 ```
 
-`Agent` is immutable. Pass a string prompt or a `Task`, and optionally a `Budget`. `run` is the simple path; `session` gives you a replayable, event-sourced process.
+Field details:
+
+- `model` — `ModelAdapter` instance, or a string shortcut such as `"openai:gpt-4o"` (resolved in `__post_init__`).
+- `reasoning` — the `ReasoningStrategy` executed by each session (default `ReAct()`).
+- `tools` — explicitly attached tools; always visible to the strategy.
+- `retriever` — optional `Retriever` exposed through `ctx.env.retrieve`.
+- `permission_policy` — SARC policy evaluated at the invocation gate (default `DefaultAllowPolicy`).
+- `tool_registry` — optional `ToolRegistry`; when set, an `IntentRouter` auto-selects tools by task intent and merges them with `tools`.
+- `credential_broker` — optional `CredentialBroker` issuing scoped tokens to tools with `requires_credentials=True`.
+- `tool_governance` — optional `ToolGovernance` bundle (schema validation, rate limiting, idempotency, timeouts).
+- `strict` — production mode. Requires a non-anonymous `ExecutionContext` and rejects `DefaultAllowPolicy`; also enables secret redaction in event data. When `False` (default), a development-mode warning is emitted.
+- `execution_context` — identity/context for the run (subject id, tenant, etc.).
+- `approval_store` — store for pending `REQUIRE_APPROVAL` requests; required for `approve()` / `deny()`.
+- `tool_filter` — allowlist (`set[str]`) or callable restricting which tools are visible.
+- `context_compiler` — optional `ContextCompiler`; defaults to `DefaultContextCompiler` per session.
+- `event_store` — optional `EventStore` backend for the session's `EventEmitter` (see §21).
+- `capabilities` — optional `CapabilityCatalog`; when set, it supersedes `tools`/`tool_registry` resolution (see §21).
+
+`Agent` is immutable. Pass a string prompt or a `Task`, and optionally a `Budget`. `run` is the simple path; `session` gives you a replayable, event-sourced process. `run_async`/`session_async` are the async counterparts; `run_structured` parses the answer into a dataclass; `run_stream` yields text chunks through the governed environment; `approve`/`deny` resolve pending approval requests.
 
 ### Session
 
@@ -319,11 +361,22 @@ class Session:
     budget: Budget | None
     events: EventEmitter
     session_id: str = field(default_factory=lambda: uuid.uuid4().hex[:16])
+    conversation_id: str | None = None
+    conversation_store: ConversationStore | None = None
+    credential_broker: Any = None     # CredentialBroker | None
+    tool_governance: Any = None       # ToolGovernance | None
+    execution_context: Any = None     # ExecutionContext | None
+    approval_store: Any = None        # InMemoryApprovalStore | None
+    tool_filter: set[str] | Callable[[list[Tool]], list[Tool]] | None = None
+    context_compiler: Any = None      # ContextCompiler | None
 
     def run(self) -> Result: ...
+    async def run_async(self) -> Result: ...
     def replay(self, mode: object = None) -> tuple[Event, ...]: ...
     def checkpoint(self) -> None: ...
 ```
+
+Sessions are normally created via `Agent.session(...)` rather than constructed directly — the agent copies its governance configuration (credential broker, tool governance, execution context, approval store, tool filter, context compiler) into the session. `conversation_id`/`conversation_store` enable cross-session memory; the history is loaded into `RunContext.conversation_history` before the strategy runs.
 
 `run` builds the `RuntimeEnvironment` and `RunContext`, emits `session.start`, executes the strategy, attaches accumulated `Usage` and `session_id`, and emits `session.end`.
 
@@ -555,7 +608,7 @@ mcp_tools = tuple(client.discover_tools())
 agent = Agent(model=..., reasoning=ReAct(), tools=mcp_tools + (Calculator(),))
 ```
 
-MCP client stdio transport is available: `connect_stdio(...)` spawns a real MCP server subprocess. MCP server mode (`serve_as_mcp(...)`) is planned for future release.
+MCP client transports are available for stdio (`connect_stdio(...)`, spawning a local subprocess) and HTTP (`connect_http(...)`, see §21). The reverse direction — exposing framework tools as an MCP server — is covered by `serve_as_mcp(...)` below.
 
 Discovered MCP tools are indistinguishable from native tools inside an agent.
 
@@ -648,20 +701,35 @@ print(result.value)  # "Apple banana cherry"
 ### serve_as_mcp
 
 ```python
-def serve_as_mcp(tools: list[Tool]) -> None: ...
+def serve_as_mcp(
+    tools: list[Tool],
+    *,
+    name: str = "petfishframework",
+    stdin: TextIO | None = None,
+    stdout: TextIO | None = None,
+) -> None: ...
 ```
 
-> **Planned for v0.5 — currently raises `NotImplementedError`.**
+`serve_as_mcp` runs a dependency-free JSON-RPC server over stdio, exposing framework tools through the MCP protocol. It is the symmetrical counterpart to `connect_stdio`: just as the framework can consume external MCP tools, it can expose its own tools to any MCP client. The server reads one JSON-RPC request per line from `stdin` and writes one response per line to `stdout`, exiting when stdin closes. `stdin`/`stdout` are injectable for tests.
 
-`serve_as_mcp` documents the symmetrical MCP direction: just as the framework can consume external MCP tools, it will eventually be able to expose its own tools as an MCP server. The function is a stub and raises `NotImplementedError("MCP server mode is Phase 4.")` until v0.5.
+Supported methods:
+
+- `initialize` — returns protocol version `2024-11-05` and server info (`name` + framework version).
+- `tools/list` — returns each tool's `name`, `description`, and `inputSchema`.
+- `tools/call` — executes the named tool and wraps the outcome as MCP `content` blocks with an `isError` flag; tool failures are reported in-band, not raised.
+- `ping` — returns an empty result. `notifications/initialized` is accepted without a response.
+
+Unknown methods return JSON-RPC error `-32601`; malformed params return `-32602`; unparseable lines return `-32700`.
 
 ```python
 from petfishframework.mcp import serve_as_mcp
 from petfishframework.tools.calculator import Calculator
 
-# This will raise NotImplementedError until v0.5.
-# serve_as_mcp([Calculator()])
+serve_as_mcp([Calculator()], name="calc-server")
+# Any MCP client can now discover and call "calculator" over stdio.
 ```
+
+Server mode is a functional minimal implementation (stdio JSON-RPC MVP); it does not yet cover resources, prompts, or streaming transports.
 
 ## 9. Retrieval
 
@@ -2201,3 +2269,115 @@ async def main():
 
 asyncio.run(main())
 ```
+
+## 21. v1.2.0 APIs
+
+### EventStore
+
+Defined in `petfishframework.core.event_store`. Persistent storage backend for the session event log, enabling audit and replay beyond process lifetime.
+
+```python
+class EventStore(Protocol):
+    def append(self, event: Event) -> None: ...
+    def get_all(self) -> list[Event]: ...
+    def since(self, timestamp: float) -> list[Event]: ...
+
+class InMemoryEventStore: ...   # default, thread-safe in-memory
+class JsonEventStore:           # append-only JSONL file, human-readable, git-friendly
+    def __init__(self, path: str) -> None: ...
+```
+
+Attach via `Agent(event_store=JsonEventStore("audit.jsonl"))`; the agent passes it to the session's `EventEmitter`.
+
+### ContextCompiler
+
+Defined in `petfishframework.core.compiler`. Compiles task + execution context + memory + retriever into a `CompiledContext` (see §13) before the strategy runs.
+
+```python
+class ContextCompiler(Protocol):
+    def compile(
+        self,
+        task: Task,
+        ctx: ExecutionContext | None,
+        memory: Any,
+        retriever: Any,
+    ) -> CompiledContext: ...
+
+class DefaultContextCompiler: ...  # generic TaskSpec + empty contracts
+```
+
+Override via `Agent(context_compiler=MyCompiler())` to inject domain-specific task specs, memory slices, evidence bundles, or output contracts.
+
+### CapabilityCatalog
+
+Defined in `petfishframework.tools.catalog`. Unified tool catalog merging native tools, `ToolRegistry` instances, and MCP clients into a single source of truth for tool visibility.
+
+```python
+class CapabilityCatalog:
+    def __init__(
+        self,
+        tools: tuple[Tool, ...] = (),
+        registries: tuple[ToolRegistry, ...] = (),
+        mcp_clients: tuple[Any, ...] = (),
+    ) -> None: ...
+    def all_tools(self) -> tuple[Tool, ...]: ...   # merged, deduplicated by name
+    def resolve(self, task: Task) -> tuple[Tool, ...]: ...  # intent-routed subset
+```
+
+When set on `Agent(capabilities=...)`, the catalog supersedes the `tools`/`tool_registry` resolution path. Minimal example: `Agent(model=m, reasoning=ReAct(), capabilities=CapabilityCatalog(tools=(Calculator(),), mcp_clients=(client,)))`.
+
+### SecretProvider
+
+Defined in `petfishframework.credentials.provider`. Pluggable secret-resolution backend for the credential layer.
+
+```python
+@runtime_checkable
+class SecretProvider(Protocol):
+    def get_secret(self, name: str) -> str | None: ...
+    def list_secrets(self) -> list[str]: ...
+
+class InMemorySecretProvider:
+    def __init__(self, secrets: dict[str, str] | None = None) -> None: ...
+    def register(self, name: str, secret: str) -> None: ...
+```
+
+`InMemorySecretProvider` is the default; Vault/KMS adapters implement the same protocol. Usage: `provider = InMemorySecretProvider({"openai": os.environ["OPENAI_API_KEY"]})`, then `provider.get_secret("openai")`.
+
+### connect_http
+
+Defined in `petfishframework.mcp.client`. HTTP companion to `connect_stdio` for consuming remote MCP servers.
+
+```python
+def connect_http(
+    url: str,
+    headers: dict[str, str] | None = None,
+) -> MCPClient: ...
+```
+
+Connects over Streamable HTTP, performs the MCP initialization handshake, and returns an `MCPClient` whose `MCPToolSpec` instances forward calls as JSON-RPC POST requests. Requires `pip install 'petfishframework[mcp-http]'` (pulls in `httpx`).
+
+```python
+from petfishframework.mcp import connect_http
+
+client = connect_http("https://mcp.example.com/mcp", headers={"Authorization": "Bearer ..."})
+tools = client.discover_tools()
+agent = Agent(model=model, reasoning=ReAct(), tools=tuple(tools))
+```
+
+### SandboxBackend
+
+Defined in `petfishframework.tools.sandbox_backend`. Pluggable execution backend used by `SandboxExecutor` to isolate tool runs.
+
+```python
+@runtime_checkable
+class SandboxBackend(Protocol):
+    def execute(self, tool: Any, args: dict[str, Any]) -> ToolResult: ...
+
+@dataclass
+class SubprocessSandboxBackend:
+    timeout_s: float = 30.0
+    allowed_env_keys: frozenset[str] = frozenset({"PATH", "HOME", "USER", "LANG", "LC_ALL"})
+    workdir: str | None = None       # None = temp dir
+```
+
+`SubprocessSandboxBackend` runs each tool call in a child process with a whitelisted environment. It provides process isolation only — **not** a security boundary. For untrusted code, use `DockerSandboxBackend` from `petfishframework.tools.docker_sandbox`.
