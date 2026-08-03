@@ -10,7 +10,7 @@ Run with:
 from __future__ import annotations
 
 import pytest
-from pytest_bdd import scenarios, given, when, then, parsers
+from pytest_bdd import given, parsers, scenarios, then, when
 
 from petfishframework.core.contracts import RiskLevel
 from petfishframework.permissions.model import (
@@ -18,7 +18,6 @@ from petfishframework.permissions.model import (
     Action,
     Decision,
     DecisionEffect,
-    PermissionPolicy,
     Resource,
     Subject,
 )
@@ -119,7 +118,10 @@ def given_resource_no_risk_level() -> Resource:
     return Resource(risk_level=None)
 
 
-@given(parsers.parse('a policy that returns {effect} for a field classified as {classification}'), target_fixture="policy")
+@given(
+    parsers.parse('a policy that returns {effect} for a field classified as {classification}'),
+    target_fixture="policy",
+)
 def given_stub_policy_mask(effect: str, classification: str) -> StubPolicy:
     return StubPolicy(_EFFECT_MAP[effect.strip()], reason=f"field classified as {classification}")
 

@@ -284,9 +284,7 @@ def test_retry_count_reset_between_calls(fast_policy: RetryPolicy) -> None:
 
     # Second call with a clean model — retry_count should reset to 0
     model2 = FlakyModel(fail_count=0, response=ModelResponse(content="ok2"))
-    wrapped2 = retry_model_adapter(model2, fast_policy)
-    # Reuse same wrapper to test reset: use wrapped.inner = model2... can't (frozen? no, RetryModelAdapter is not frozen)
-    # Instead: call the SAME wrapped again — it should reset retry_count
+    # Reuse the same wrapper to test reset
     wrapped.inner = model2  # type: ignore
     wrapped.query(ModelRequest(messages=()))
     assert wrapped.retry_count == 0
